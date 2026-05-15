@@ -1,0 +1,20 @@
+:root{
+  --primary:#1e64ff;
+  --primary-dark:#144bdb;
+  --soft:#f3f6ff;
+  --muted:#6b7280;
+  --card:#ffffff;
+  --border:#e5e7eb;
+}
+body{
+  background:#f8f9fb;
+  color:#111827;
+  font-family:"Inter", system-ui, -apple-system, sans-serif;
+}
+a{ text-decoration:none; }
+.btn-primary{ background:var(--primary); border-color:var(--primary); }
+.btn-outline-primary{ color:var(--primary); border-color:var(--primary); }
+.badge-soft{ background:var(--soft); color:var(--primary); border:1px solid #dbe7ff; }
+.card{ border-radius:16px; border:1px solid var(--border); }
+.shadow-soft{ box-shadow:0 10px 20px rgba(30,100,255,0.08); }
+.section-title{ font-weight:700; font-size:28px; }

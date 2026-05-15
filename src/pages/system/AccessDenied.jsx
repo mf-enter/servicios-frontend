@@ -1,0 +1,1 @@
+export default function AccessDenied(){return <div className="container"><h2>Acceso denegado</h2></div>;}

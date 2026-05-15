@@ -1,0 +1,1 @@
+export default function ModalConfirm(){return null;}
