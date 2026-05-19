@@ -33,7 +33,18 @@ export default function WorkerDetail() {
 
     Promise.all([
       api.get(`/workers/${id}`)
-        .then((response) => { if (mounted) setWorker(itemFromResponse(response)); })
+        .then((response) => {
+          if (!mounted) return;
+          let fetched = itemFromResponse(response) || {};
+          try {
+            const local = localStorage.getItem(`worker_profile_${id}`);
+            if (local) {
+              const parsed = JSON.parse(local);
+              fetched = { ...fetched, ...parsed };
+            }
+          } catch (_) {}
+          setWorker(fetched);
+        })
         .catch((err) => { if (mounted) setError(apiErrorMessage(err)); }),
       api.get("/service-types")
         .then(r => { if (mounted) setTypes(listFromResponse(r)); })
@@ -63,20 +74,46 @@ export default function WorkerDetail() {
       let clientPayload = {};
       try {
         const payload = JSON.parse(atob(token.split(".")[1] || ""));
+        let localProfile = {};
+        try {
+          localProfile = JSON.parse(localStorage.getItem("user_profile_me") || "{}");
+        } catch (_) {
+          localProfile = {};
+        }
         clientPayload = {
           client_id: payload?.user_id || payload?.id || null,
-          client_name: payload?.name || payload?.fullname || payload?.username || null,
-          client_phone: payload?.phone_number || payload?.phone || null,
-          client_email: payload?.email || null,
+          client_name: localProfile?.name || payload?.name || payload?.fullname || payload?.username || null,
+          client_lastname: localProfile?.lastname || payload?.lastname || null,
+          client_phone: localProfile?.phone_number || payload?.phone_number || payload?.phone || null,
+          client_email: localProfile?.email || payload?.email || null,
+          client_address: localProfile?.address || null,
+          client_city: localProfile?.city || null,
+          client_state: localProfile?.state || null,
+          // Compatibilidad con diferentes esquemas de backend
+          address_phone_number: localProfile?.phone_number || payload?.phone_number || payload?.phone || null,
+          address: localProfile?.address || null,
+          full_address: [localProfile?.address, localProfile?.city, localProfile?.state].filter(Boolean).join(", ") || null,
         };
       } catch (_) {
         clientPayload = {};
       }
+
+      const contactLine = [clientPayload?.client_phone, clientPayload?.client_email].filter(Boolean).join(" | ");
+      const addressLine = [clientPayload?.client_address, clientPayload?.client_city, clientPayload?.client_state]
+        .filter(Boolean)
+        .join(", ");
+      const descriptionWithContact = [
+        `Solicitud para ${worker?.name ?? ""} ${worker?.lastname ?? ""}. ${notes}`.trim(),
+        contactLine ? `Contacto cliente: ${contactLine}` : "",
+        addressLine ? `Domicilio cliente: ${addressLine}` : "",
+      ]
+        .filter(Boolean)
+        .join(". ");
       
       await api.post("/services/request", {
         service_type_id: Number(serviceTypeId),
         worker_id: Number(id),
-        description: `Solicitud para ${worker?.name ?? ""} ${worker?.lastname ?? ""}. ${notes}`,
+        description: descriptionWithContact,
         ...clientPayload,
       });
       
@@ -118,28 +155,60 @@ export default function WorkerDetail() {
               </div>
               
               <h2 className="fw-bold">{worker?.name} {worker?.lastname}</h2>
-              <p className="text-muted mb-3">{worker?.bio ?? "Profesional verificado disponible."}</p>
+              
+              {worker?.specialty && (
+                <p className="text-primary fw-semibold mb-2">⚡ {worker.specialty}</p>
+              )}
 
               {worker?.is_verified && <div className="badge bg-success mb-3">✅ Verificado</div>}
 
-              <div className="row g-2 mb-3">
-                <div className="col-6">
-                  <div className="p-2 bg-light rounded">
-                    <div className="fw-bold">${worker?.hourly_rate ?? 350}</div>
-                    <small className="text-muted">por hora</small>
-                  </div>
-                </div>
-                <div className="col-6">
-                  <div className="p-2 bg-light rounded">
-                    <div className="fw-bold">{worker?.experience_years ?? 5}</div>
-                    <small className="text-muted">años exp.</small>
-                  </div>
-                </div>
+              <hr className="my-3" />
+
+              {/* Descripción completa */}
+              <div className="mb-3">
+                <h6 className="text-uppercase text-muted small mb-2">📋 Sobre este profesional</h6>
+                <p className="text-muted lh-sm small">
+                  {worker?.bio || "Profesional verificado disponible para servicios a domicilio."}
+                </p>
               </div>
 
-              <div className="text-start">
-                <strong>Email:</strong>
-                <p className="text-muted">{worker?.email}</p>
+              {/* Contacto */}
+              <div className="mb-3">
+                <h6 className="text-uppercase text-muted small mb-2">📞 Contacto</h6>
+                {worker?.email && (
+                  <p className="mb-2 small">
+                    <strong>📧 Email:</strong><br/>
+                    <a href={`mailto:${worker.email}`} className="text-primary text-decoration-none">
+                      {worker.email}
+                    </a>
+                  </p>
+                )}
+                {worker?.phone_number && (
+                  <p className="mb-0 small">
+                    <strong>☎️ Teléfono:</strong><br/>
+                    <a href={`tel:${worker.phone_number}`} className="text-primary text-decoration-none">
+                      {worker.phone_number}
+                    </a>
+                  </p>
+                )}
+              </div>
+
+              <hr className="my-3" />
+
+              {/* Estadísticas */}
+              <div className="row g-2 mb-3">
+                <div className="col-6">
+                  <div className="p-3 bg-light rounded text-center">
+                    <div className="fw-bold h5 mb-1">${worker?.hourly_rate ?? "N/A"}</div>
+                    <small className="text-muted">Cotización base</small>
+                  </div>
+                </div>
+                <div className="col-6">
+                  <div className="p-3 bg-light rounded text-center">
+                    <div className="fw-bold h5 mb-1">{worker?.experience_years ?? "5"}+</div>
+                    <small className="text-muted">años de exp.</small>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -199,12 +268,12 @@ export default function WorkerDetail() {
 
                 <div className="p-3 bg-light rounded">
                   <div className="d-flex justify-content-between align-items-center">
-                    <span>Presupuesto estimado:</span>
+                    <span>Cotizacion estimada:</span>
                     <strong className="text-primary" style={{fontSize: "1.25rem"}}>
-                      ${estimado}/hr
+                      ${estimado}
                     </strong>
                   </div>
-                  <small className="text-muted">El precio final dependerá de la duración del trabajo</small>
+                  <small className="text-muted">El precio final depende del tipo de servicio y la solicitud del cliente</small>
                 </div>
 
                 <button 

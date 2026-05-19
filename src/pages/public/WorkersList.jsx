@@ -16,7 +16,20 @@ export default function WorkersList() {
   useEffect(() => {
     Promise.all([
       api.get("/workers")
-        .then(r => setWorkers(listFromResponse(r)))
+        .then(r => {
+          const list = listFromResponse(r) || [];
+          // Aplicar overrides locales guardados tras edición en WorkerPanel
+          const merged = list.map(w => {
+            try {
+              const local = localStorage.getItem(`worker_profile_${w.worker_id ?? w.user_id}`);
+              if (local) {
+                return { ...w, ...JSON.parse(local) };
+              }
+            } catch (_) {}
+            return w;
+          });
+          setWorkers(merged);
+        })
         .catch(err => setError(apiErrorMessage(err))),
       api.get("/service-types")
         .then(r => {
@@ -113,10 +126,12 @@ export default function WorkersList() {
                   </div>
                 )}
 
-                {/* Precio */}
-                <div className="mb-3 p-3 bg-light rounded-3">
-                  <small className="text-muted d-block mb-1">Tarifa por hora</small>
-                  <div className="h5 mb-0 text-primary fw-bold">${w.hourly_rate ?? 350}<span style={{fontSize: "0.8rem"}}>/hr</span></div>
+                {/* Llamado a la acción: no mostrar precio */}
+                <div className="mb-3 p-3 bg-light rounded-3 text-center">
+                  <small className="text-muted d-block mb-1">Contrata, agenda y te damos tu cotización</small>
+                  <div className="h6 mb-0 text-primary fw-semibold">
+                    Contrata, agenda y te damos tu cotización
+                  </div>
                 </div>
 
                 {/* Botón */}
@@ -131,7 +146,7 @@ export default function WorkersList() {
                     e.currentTarget.style.transform = "scale(1)";
                   }}
                 >
-                  Ver perfil y contratar →
+                  Ver perfil y solicitar cotización →
                 </Link>
               </div>
             </div>

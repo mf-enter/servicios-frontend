@@ -6,6 +6,8 @@ import { apiErrorMessage, listFromResponse } from "../../api/normalize";
 export default function Account() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
+  const hiddenHistoryStorageKey = "hidden_history_service_ids";
+  const workerHiddenHistoryStorageKey = "worker_hidden_history_service_ids";
 
   const [user, setUser] = useState(null);
   const [requestedServices, setRequestedServices] = useState([]);
@@ -14,8 +16,56 @@ export default function Account() {
   const [expandedServiceId, setExpandedServiceId] = useState(null);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    lastname: "",
+    email: "",
+    phone_number: "",
+    address: "",
+    city: "",
+    state: "",
+  });
+
+  const getHiddenHistoryIds = () => {
+    try {
+      const raw = localStorage.getItem(hiddenHistoryStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set((Array.isArray(parsed) ? parsed : []).map((value) => String(value)));
+    } catch (_) {
+      return new Set();
+    }
+  };
+
+  const hideHistoryId = (serviceId) => {
+    try {
+      const normalized = String(serviceId ?? "");
+      if (!normalized) return;
+
+      const current = Array.from(getHiddenHistoryIds());
+      if (!current.includes(normalized)) {
+        const updated = [...current, normalized];
+        localStorage.setItem(hiddenHistoryStorageKey, JSON.stringify(updated));
+        // También mantener sincronía visual con WorkerPanel en el mismo navegador.
+        localStorage.setItem(workerHiddenHistoryStorageKey, JSON.stringify(updated));
+      }
+    } catch (_) {}
+  };
+
+  const filterHiddenHistory = (items) => {
+    const hiddenIds = getHiddenHistoryIds();
+    return (items || []).filter((item) => {
+      const serviceId = item?.service_id ?? item?.id;
+      return !hiddenIds.has(String(serviceId ?? ""));
+    });
+  };
+
+  const extractProfileData = (response) => {
+    const root = response?.data ?? {};
+    return root?.data ?? root ?? {};
+  };
 
   const getTokenRole = () => {
     try {
@@ -34,13 +84,19 @@ export default function Account() {
     ]);
 
     const requested = requestedResult.status === "fulfilled" ? listFromResponse(requestedResult.value) : [];
-    const history = historyResult.status === "fulfilled" ? listFromResponse(historyResult.value) : [];
+    const historyRaw = historyResult.status === "fulfilled" ? listFromResponse(historyResult.value) : [];
+    const history = filterHiddenHistory(historyRaw);
 
     if (requested.length === 0 && history.length === 0 && requestedResult.status === "rejected" && historyResult.status === "rejected") {
       throw requestedResult.reason || historyResult.reason;
     }
 
     return { requested, history };
+  };
+
+  const fetchUserProfile = async () => {
+    const response = await api.get("/users/me/profile");
+    return extractProfileData(response);
   };
 
   useEffect(() => {
@@ -59,19 +115,65 @@ export default function Account() {
       return;
     }
 
+    let mounted = true;
+
     const load = async () => {
       try {
         setLoading(true);
         setError("");
         setSuccess("");
 
-        const servicesData = await fetchServices();
-        setRequestedServices(servicesData.requested || []);
-        setHistoryServicesData(servicesData.history || []);
+        const [servicesData, profileResult] = await Promise.allSettled([
+          fetchServices(),
+          fetchUserProfile(),
+        ]);
+
+        const safeServices = servicesData.status === "fulfilled" ? servicesData.value : { requested: [], history: [] };
+        const profileData = profileResult.status === "fulfilled" ? profileResult.value : {};
+
+        setRequestedServices(safeServices.requested || []);
+        setHistoryServicesData(safeServices.history || []);
+
+        setProfileForm((prev) => ({
+          ...prev,
+          name: profileData.name || prev.name || "",
+          lastname: profileData.lastname || prev.lastname || "",
+          email: profileData.email || prev.email || "",
+          phone_number: profileData.phone_number || prev.phone_number || "",
+          address: profileData.address || prev.address || "",
+          city: profileData.city || prev.city || "",
+          state: profileData.state || prev.state || "",
+        }));
 
         try {
           const payload = JSON.parse(atob(token.split(".")[1]));
-          setUser({ user_id: payload.user_id, role: payload.role });
+          const userId = payload.user_id;
+          const normalizedProfile = {
+            user_id: userId,
+            name: profileData.name || payload.name || payload.fullname || "",
+            lastname: profileData.lastname || payload.lastname || "",
+            email: profileData.email || payload.email || "",
+            phone_number: profileData.phone_number || payload.phone_number || "",
+            address: profileData.address || "",
+            city: profileData.city || "",
+            state: profileData.state || "",
+          };
+
+          setUser({
+            user_id: userId,
+            role: payload.role,
+            ...normalizedProfile,
+          });
+
+          try {
+            localStorage.setItem("user_profile_me", JSON.stringify(normalizedProfile));
+            localStorage.setItem(`client_profile_${userId}`, JSON.stringify(normalizedProfile));
+            localStorage.setItem(`user_profile_${userId}`, JSON.stringify(normalizedProfile));
+          } catch (_) {}
+
+          try {
+            window.dispatchEvent(new CustomEvent("profile-updated", { detail: { user_id: userId } }));
+          } catch (_) {}
         } catch (decodeError) {
           console.error("Error decodificando token:", decodeError);
         }
@@ -83,6 +185,29 @@ export default function Account() {
     };
 
     load();
+    const intervalId = setInterval(() => {
+      if (mounted) {
+        refreshServices().catch(() => {});
+      }
+    }, 10000);
+
+    const handleFocus = () => {
+      refreshServices().catch(() => {});
+    };
+
+    const handleWorkerProfileUpdated = () => {
+      refreshServices().catch(() => {});
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("worker-profile-updated", handleWorkerProfileUpdated);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("worker-profile-updated", handleWorkerProfileUpdated);
+    };
   }, [token, navigate]);
 
   const refreshServices = async () => {
@@ -90,6 +215,84 @@ export default function Account() {
     setRequestedServices(data.requested || []);
     setHistoryServicesData(data.history || []);
   };
+
+  const handleProfileInput = (event) => {
+    const { name, value } = event.target;
+    setProfileForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const updateProfile = async (event) => {
+    event.preventDefault();
+
+    const payload = {
+      name: profileForm.name?.trim() || null,
+      lastname: profileForm.lastname?.trim() || null,
+      email: profileForm.email?.trim() || null,
+      phone_number: profileForm.phone_number?.trim() || null,
+      address: profileForm.address?.trim() || null,
+      city: profileForm.city?.trim() || null,
+      state: profileForm.state?.trim() || null,
+    };
+
+    try {
+      setSavingProfile(true);
+      setError("");
+      setSuccess("");
+
+      await api.put("/users/me/profile", payload);
+      setUser((prev) => ({ ...prev, ...payload }));
+      try {
+        const resolvedUserId = user?.user_id;
+        const normalizedProfile = { ...user, ...payload, user_id: resolvedUserId };
+        localStorage.setItem("user_profile_me", JSON.stringify(normalizedProfile));
+        if (resolvedUserId) {
+          localStorage.setItem(`client_profile_${resolvedUserId}`, JSON.stringify(normalizedProfile));
+          localStorage.setItem(`user_profile_${resolvedUserId}`, JSON.stringify(normalizedProfile));
+        }
+        try {
+          window.dispatchEvent(new CustomEvent("profile-updated", { detail: { user_id: resolvedUserId } }));
+        } catch (_) {}
+      } catch (_) {}
+      setSuccess("Perfil actualizado correctamente.");
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const deleteHistoryItem = async (service) => {
+    const serviceId = service?.service_id ?? service?.id;
+    if (!serviceId) {
+      setError("No se pudo identificar el historial a eliminar.");
+      return;
+    }
+    if (!window.confirm(`¿Eliminar el historial del servicio #${serviceId}?`)) return;
+
+    setActionLoadingId(serviceId);
+    setError("");
+    setSuccess("");
+
+    try {
+      // Si el backend ya implementó DELETE real, esto sincroniza con worker/admin.
+      await api.delete(`/users/me/history/${serviceId}`);
+      hideHistoryId(serviceId);
+      setHistoryServicesData((prev) => prev.filter((item) => (item.service_id ?? item.id) !== serviceId));
+      setSuccess("Historial eliminado correctamente.");
+    } catch (err) {
+      // Fallback visual mientras el backend no tenga endpoint.
+      if (err.response?.status === 404 || err.response?.status === 405) {
+        hideHistoryId(serviceId);
+        setHistoryServicesData((prev) => prev.filter((item) => (item.service_id ?? item.id) !== serviceId));
+        setSuccess("Historial ocultado de tu vista.");
+      } else {
+        setError(apiErrorMessage(err));
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -131,6 +334,51 @@ export default function Account() {
     }
   };
 
+  const requestAcceptQuote = async (service) => {
+    const serviceId = service.service_id ?? service.id;
+    const amount = Number(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
+
+    if (amount <= 0) {
+      setError("Aun no hay cotizacion disponible para este servicio.");
+      return;
+    }
+
+    if (!window.confirm(`¿Aceptar la cotizacion del servicio #${serviceId}?`)) return;
+
+    setActionLoadingId(serviceId);
+    setError("");
+    setSuccess("");
+
+    try {
+      // Validar que el token corresponde al cliente (debug)
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload?.user_id !== user?.user_id) {
+        console.warn("Token mismatch: token user_id no coincide con usuario actual");
+      }
+
+      await api.patch(`/services/${serviceId}/status`, { status_name: "Aceptado" });
+      setSuccess(`Cotizacion aceptada para el servicio #${serviceId}.`);
+      await refreshServices();
+    } catch (err) {
+      // Loggear el error completo para debugging
+      console.log("Error al aceptar cotización:", err.response?.data);
+      
+      const backendMessage = err.response?.data?.message;
+      
+      if (err.response?.status === 409) {
+        setError(backendMessage || "El servicio no puede aceptarse en este estado.");
+      } else if (err.response?.status === 403) {
+        setError(backendMessage || "No tienes permiso para aceptar este servicio.");
+      } else if (err.response?.status === 404) {
+        setError(backendMessage || "El servicio no existe.");
+      } else {
+        setError(apiErrorMessage(err));
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   const requestPayService = async (service) => {
     const serviceId = service.service_id;
     const amount = Number(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
@@ -143,8 +391,9 @@ export default function Account() {
 
     try {
       const status = String(service.status_name ?? service.status ?? "").toLowerCase();
-      if (status !== "completado") {
-        setError("Solo se puede pagar un servicio cuando su estado es Completado.");
+      const paymentAllowed = status === "completado";
+      if (!paymentAllowed) {
+        setError("Solo se puede pagar cuando el servicio está completado.");
         setActionLoadingId(null);
         return;
       }
@@ -165,7 +414,7 @@ export default function Account() {
       await refreshServices();
     } catch (err) {
       if (err.response?.status === 409) {
-        setError("El servicio debe estar en estado Completado para realizar el pago.");
+        setError("El backend no permite pagar este servicio en su estado actual. Debe aceptar pago para estado Aceptado o En progreso.");
       } else if (err.response?.status === 400) {
         setError("Datos de pago inválidos. Verifica el monto y los datos del servicio.");
       } else if (err.response?.status === 404) {
@@ -197,6 +446,16 @@ export default function Account() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
+  };
+
+  const getWorkerProfileFromLocalStorage = (workerId) => {
+    if (!workerId) return null;
+    try {
+      const raw = localStorage.getItem(`worker_profile_${workerId}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
   };
 
   const normalizedServices = useMemo(() => {
@@ -254,6 +513,13 @@ export default function Account() {
             <div className="btn-group mb-4" role="group" aria-label="Tabs de servicios">
               <button
                 type="button"
+                className={`btn ${activeTab === "perfil" ? "btn-primary" : "btn-outline-primary"}`}
+                onClick={() => setActiveTab("perfil")}
+              >
+                Perfil
+              </button>
+              <button
+                type="button"
                 className={`btn ${activeTab === "activos" ? "btn-primary" : "btn-outline-primary"}`}
                 onClick={() => setActiveTab("activos")}
               >
@@ -272,24 +538,71 @@ export default function Account() {
             {error ? <div className="alert alert-danger">{error}</div> : null}
             {success ? <div className="alert alert-success">{success}</div> : null}
 
-            {!loading && listToRender.length === 0 ? (
+            {activeTab === "perfil" ? (
+              <div className="card shadow-sm border-0 mb-3">
+                <div className="card-body">
+                  <h5 className="mb-3">Editar perfil</h5>
+                  <p className="text-muted small">Estos datos se usan para contacto y se comparten en nuevas solicitudes hacia trabajadores.</p>
+                  <form onSubmit={updateProfile} className="row g-3">
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Nombre</label>
+                      <input className="form-control" name="name" value={profileForm.name} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Apellido</label>
+                      <input className="form-control" name="lastname" value={profileForm.lastname} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Correo</label>
+                      <input className="form-control" type="email" name="email" value={profileForm.email} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Número</label>
+                      <input className="form-control" name="phone_number" value={profileForm.phone_number} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label">Domicilio</label>
+                      <input className="form-control" name="address" value={profileForm.address} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Ciudad</label>
+                      <input className="form-control" name="city" value={profileForm.city} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12 col-md-6">
+                      <label className="form-label">Estado/Provincia</label>
+                      <input className="form-control" name="state" value={profileForm.state} onChange={handleProfileInput} />
+                    </div>
+                    <div className="col-12">
+                      <button type="submit" className="btn btn-primary" disabled={savingProfile}>
+                        {savingProfile ? "Guardando..." : "Guardar perfil"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab !== "perfil" && !loading && listToRender.length === 0 ? (
               <div className="alert alert-warning">
                 <p className="mb-0">No hay servicios en esta sección.</p>
                 <small><a href="/trabajadores" className="alert-link">Explora trabajadores →</a></small>
               </div>
             ) : null}
 
-            <div className="row g-3">
-              {listToRender.map((service) => {
+            {activeTab !== "perfil" ? <div className="row g-3">
+              {listToRender.map((service, index) => {
                 const id = service.service_id;
                 const isExpanded = expandedServiceId === id;
                 const statusLower = String(service.status_name ?? service.status ?? "").toLowerCase();
-                const isCompleted = statusLower === "completado";
+                const canPay = statusLower === "aceptado" || statusLower === "en progreso" || statusLower === "completado";
                 const isCanceled = statusLower === "cancelado";
                 const paymentDone = String(service.payment_status ?? "").toLowerCase() === "completado";
+                const amount = Number(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
+                const hasQuote = amount > 0;
+                const rowKey = `${activeTab}-${id ?? "no-id"}-${service.status_name ?? service.status ?? "status"}-${service.created_at ?? service.requested_at ?? index}-${index}`;
 
                 return (
-                  <div key={id} className="col-12">
+                  <div key={rowKey} className="col-12">
                     <div className="card shadow-sm border-0">
                       <div className="card-body">
                         <div className="d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -333,7 +646,18 @@ export default function Account() {
                               </button>
                             ) : null}
 
-                            {isCompleted && !paymentDone ? (
+                            {statusLower === "pendiente" && hasQuote ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-primary"
+                                disabled={actionLoadingId === id}
+                                onClick={() => requestAcceptQuote(service)}
+                              >
+                                Aceptar cotizacion
+                              </button>
+                            ) : null}
+
+                            {canPay && !paymentDone ? (
                               <button
                                 type="button"
                                 className="btn btn-sm btn-success"
@@ -343,18 +667,45 @@ export default function Account() {
                                 Pagar
                               </button>
                             ) : null}
+
+                            {activeTab === "historial" ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                disabled={actionLoadingId === id}
+                                onClick={() => deleteHistoryItem(service)}
+                              >
+                                Eliminar historial
+                              </button>
+                            ) : null}
                           </div>
                         </div>
 
                         {isExpanded ? (
                           <div className="mt-3 pt-3 border-top">
                             <div className="row g-2 small">
-                              <div className="col-12 col-md-6"><strong>Solicitado:</strong> {fmtDate(service.created_at || service.requested_at)}</div>
-                              <div className="col-12 col-md-6"><strong>Programado:</strong> {fmtDate(service.scheduled_at || service.start_date)}</div>
-                              <div className="col-12 col-md-6"><strong>Monto estimado:</strong> ${service.estimated_price || service.amount || service.total_amount || "Pendiente"}</div>
-                              <div className="col-12 col-md-6"><strong>Referencia pago:</strong> {service.transaction_reference || "-"}</div>
-                              <div className="col-12 col-md-6"><strong>Trabajador:</strong> {service.worker_name || service.assigned_worker_name || "Sin asignar"}</div>
-                              <div className="col-12 col-md-6"><strong>Teléfono trabajo:</strong> {service.address_phone_number || "-"}</div>
+                              {(() => {
+                                const wp = service.worker_id ? getWorkerProfileFromLocalStorage(service.worker_id) : null;
+                                const workerName = wp?.name || service.worker_name || service.assigned_worker_name || "-";
+                                const workerLastname = wp?.lastname || service.worker_lastname || "";
+                                const workerEmail = wp?.email || service.worker_email || "-";
+                                const workerPhone = wp?.phone_number || wp?.phone || service.worker_phone || service.address_phone_number || "-";
+                                const workerSpecialty = wp?.specialty || service.worker_specialty || "-";
+                                const workerExperience = wp?.experience_years ?? service.worker_experience_years ?? "-";
+                                const workerBio = wp?.bio || service.worker_bio || "-";
+
+                                return (
+                                  <>
+                                    <div className="col-12"><strong>Nombre:</strong> {workerName}</div>
+                                    <div className="col-12"><strong>Apellido:</strong> {workerLastname || "-"}</div>
+                                    <div className="col-12"><strong>Email:</strong> {workerEmail}</div>
+                                    <div className="col-12"><strong>Teléfono:</strong> {workerPhone}</div>
+                                    <div className="col-12"><strong>Profesión / Especialidad:</strong> {workerSpecialty}</div>
+                                    <div className="col-12"><strong>Años de experiencia:</strong> {workerExperience}</div>
+                                    <div className="col-12"><strong>Descripción de servicios:</strong> {workerBio}</div>
+                                  </>
+                                );
+                              })()}
                               <div className="col-12"><strong>Notas:</strong> {service.notes || "Sin notas"}</div>
                             </div>
                           </div>
@@ -364,7 +715,7 @@ export default function Account() {
                   </div>
                 );
               })}
-            </div>
+            </div> : null}
           </div>
         </div>
       </div>

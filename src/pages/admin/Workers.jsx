@@ -209,7 +209,7 @@ export default function Workers() {
                 <input 
                   type="number" 
                   className="form-control" 
-                  placeholder="Tarifa por hora"
+                  placeholder="Referencia de cotizacion"
                   name="hourly_rate"
                   value={formData.hourly_rate}
                   onChange={handleInputChange}
@@ -275,7 +275,7 @@ export default function Workers() {
                 <th>Nombre</th>
                 <th>Email</th>
                 <th>Especialidad</th>
-                <th>Tarifa/hr</th>
+                <th>Cotizacion base</th>
                 <th>Experiencia</th>
                 <th>Verificado</th>
                 <th>Acciones</th>

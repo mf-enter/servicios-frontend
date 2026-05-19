@@ -13,7 +13,10 @@ export default function WorkerCard({ worker }) {
 					</div>
 				</div>
 				<p className="text-muted mt-3 mb-2">{worker?.bio ?? "Profesional verificado disponible para servicios a domicilio."}</p>
-				<div className="fw-semibold">${worker?.hourly_rate ?? 350}/hr</div>
+				<div className="mb-3 p-2 bg-light rounded-3 text-center">
+					<small className="text-muted d-block mb-1">Contrata, agenda y te damos tu cotización</small>
+					<div className="fw-semibold text-primary">Contrata y solicita tu cotización</div>
+				</div>
 			</div>
 		</div>
 	);
