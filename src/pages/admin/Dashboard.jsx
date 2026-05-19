@@ -63,8 +63,53 @@ export default function Dashboard() {
       }
     };
 
+    const refresh = async () => {
+      try {
+        const [dashboardRes, usersRes, workersRes, servicesRes, paymentsRes] = await Promise.allSettled([
+          api.get("/admin/dashboard"),
+          api.get("/users"),
+          api.get("/workers"),
+          api.get("/services"),
+          api.get("/payments"),
+        ]);
+
+        if (!mounted) return;
+
+        if (dashboardRes.status === "fulfilled") {
+          setDashboardData(dashboardRes.value?.data?.data ?? dashboardRes.value?.data ?? null);
+        }
+        if (usersRes.status === "fulfilled") {
+          setUsers(listFromResponse(usersRes.value));
+        }
+        if (workersRes.status === "fulfilled") {
+          setWorkers(listFromResponse(workersRes.value));
+        }
+        if (servicesRes.status === "fulfilled") {
+          setServices(listFromResponse(servicesRes.value));
+        }
+        if (paymentsRes.status === "fulfilled") {
+          setPayments(listFromResponse(paymentsRes.value));
+        }
+      } catch (_) {}
+    };
+
     load();
-    return () => { mounted = false; };
+
+    const intervalId = setInterval(() => {
+      if (mounted) refresh();
+    }, 10000);
+
+    const handleFocus = () => {
+      refresh();
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   const serviceStats = useMemo(() => {
@@ -96,6 +141,26 @@ export default function Dashboard() {
       pendingCount: pendingPayments.length,
     };
   }, [payments]);
+
+  const userById = useMemo(() => {
+    const map = new Map();
+    users.forEach((u) => {
+      map.set(u.user_id ?? u.id, u);
+    });
+    return map;
+  }, [users]);
+
+  const pendingCharges = useMemo(() => {
+    return services.filter((s) => {
+      const status = normalizeStatus(s.status_name);
+      const paymentStatus = normalizeStatus(s.payment_status);
+      return status === "completado" && paymentStatus !== "completado" && paymentStatus !== "paid";
+    });
+  }, [services]);
+
+  const acceptedServices = useMemo(() => {
+    return services.filter((s) => normalizeStatus(s.status_name) === "aceptado");
+  }, [services]);
 
   const workerClientRelations = useMemo(() => {
     const map = new Map();
@@ -152,6 +217,19 @@ export default function Dashboard() {
   }, [services]);
 
   if (loading) return <div className="container">Cargando monitoreo...</div>;
+
+  const resolveClientInfo = (service) => {
+    const clientId = service.client_id ?? service.user_id;
+    const client = clientId ? userById.get(clientId) : null;
+    const clientName =
+      service.client_name ||
+      service.customer_name ||
+      [client?.name, client?.lastname].filter(Boolean).join(" ") ||
+      (clientId ? `#${clientId}` : "Cliente");
+    const clientEmail = service.client_email || client?.email || "-";
+    const clientPhone = service.client_phone || service.address_phone_number || client?.phone_number || "-";
+    return { clientName, clientEmail, clientPhone };
+  };
 
   const cards = [
     { label: "Usuarios", value: dashboardData?.total_users ?? users.length },
@@ -229,7 +307,7 @@ export default function Dashboard() {
                     <th>Trabajos</th>
                     <th>En progreso</th>
                     <th>Completados</th>
-                    <th>Monto estimado</th>
+                    <th>Cotizacion acumulada</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -248,6 +326,87 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      <div className="card shadow-sm mt-4 border-0">
+        <div className="card-body">
+          <h5 className="mb-2">Notificaciones de cobranza</h5>
+          <p className="text-muted">Servicios completados con pago pendiente e informacion del cliente.</p>
+          {acceptedServices.length > 0 && (
+            <div className="mb-3">
+              <h6 className="mb-2">Cotizaciones aceptadas (pendientes de inicio/completado)</h6>
+              <div className="table-responsive">
+                <table className="table table-sm table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Servicio</th>
+                      <th>Cliente</th>
+                      <th>Contacto</th>
+                      <th>Trabajador</th>
+                      <th>Cotizacion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acceptedServices.map((service) => {
+                      const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
+                      const amount = toNumber(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
+                      return (
+                        <tr key={`accepted-${service.service_id ?? service.id}`}>
+                          <td>#{service.service_id ?? service.id}</td>
+                          <td>{clientName}</td>
+                          <td>
+                            <div>{clientEmail}</div>
+                            <div className="text-muted small">{clientPhone}</div>
+                          </td>
+                          <td>{service.worker_name || service.assigned_worker_name || "-"}</td>
+                          <td>${amount.toLocaleString()}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {pendingCharges.length === 0 ? (
+            <div className="alert alert-light border mb-0">Sin cobranzas pendientes.</div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover align-middle mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th>Servicio</th>
+                    <th>Cliente</th>
+                    <th>Contacto</th>
+                    <th>Trabajador</th>
+                    <th>Pago</th>
+                    <th>Cotizacion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingCharges.map((service) => {
+                    const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
+                    const amount = toNumber(service.amount ?? service.estimated_price ?? service.total_amount ?? 0);
+                    return (
+                      <tr key={`charge-${service.service_id ?? service.id}`}>
+                        <td>#{service.service_id ?? service.id}</td>
+                        <td>{clientName}</td>
+                        <td>
+                          <div>{clientEmail}</div>
+                          <div className="text-muted small">{clientPhone}</div>
+                        </td>
+                        <td>{service.worker_name || service.assigned_worker_name || "-"}</td>
+                        <td>{service.payment_status || "Pendiente"}</td>
+                        <td>${amount.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
     </div>
   );
 }

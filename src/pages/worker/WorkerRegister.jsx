@@ -49,7 +49,7 @@ export default function WorkerRegister() {
       return;
     }
     if (!formData.hourly_rate || Number(formData.hourly_rate) <= 0) {
-      setError("La tarifa por hora debe ser mayor a 0.");
+      setError("La referencia de cotizacion debe ser mayor a 0.");
       return;
     }
 
@@ -184,7 +184,7 @@ export default function WorkerRegister() {
                     <input 
                       type="number" 
                       className="form-control form-control-lg" 
-                      placeholder="Tarifa por hora ($)"
+                      placeholder="Referencia de cotizacion ($)"
                       name="hourly_rate"
                       value={formData.hourly_rate}
                       onChange={handleChange}
