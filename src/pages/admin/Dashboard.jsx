@@ -103,12 +103,27 @@ export default function Dashboard() {
       refresh();
     };
 
+    const handleAppDataUpdated = () => {
+      refresh();
+    };
+
+    const handleStorage = (e) => {
+      try {
+        if (!e?.key) return;
+        if (e.key === "app:data-updated") refresh();
+      } catch (_) {}
+    };
+
     window.addEventListener("focus", handleFocus);
+    window.addEventListener("app-data-updated", handleAppDataUpdated);
+    window.addEventListener("storage", handleStorage);
 
     return () => {
       mounted = false;
       clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("app-data-updated", handleAppDataUpdated);
+      window.removeEventListener("storage", handleStorage);
     };
   }, []);
 
@@ -329,80 +344,107 @@ export default function Dashboard() {
 
       <div className="card shadow-sm mt-4 border-0">
         <div className="card-body">
-          <h5 className="mb-2">Notificaciones de cobranza</h5>
-          <p className="text-muted">Servicios completados con pago pendiente e informacion del cliente.</p>
-          {acceptedServices.length > 0 && (
-            <div className="mb-3">
-              <h6 className="mb-2">Cotizaciones aceptadas (pendientes de inicio/completado)</h6>
-              <div className="table-responsive">
-                <table className="table table-sm table-hover mb-0">
-                  <thead>
-                    <tr>
-                      <th>Servicio</th>
-                      <th>Cliente</th>
-                      <th>Contacto</th>
-                      <th>Trabajador</th>
-                      <th>Cotizacion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {acceptedServices.map((service) => {
-                      const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
-                      const amount = toNumber(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
-                      return (
-                        <tr key={`accepted-${service.service_id ?? service.id}`}>
-                          <td>#{service.service_id ?? service.id}</td>
-                          <td>{clientName}</td>
-                          <td>
-                            <div>{clientEmail}</div>
-                            <div className="text-muted small">{clientPhone}</div>
-                          </td>
-                          <td>{service.worker_name || service.assigned_worker_name || "-"}</td>
-                          <td>${amount.toLocaleString()}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h5 className="mb-1">🔔 Notificaciones de cobranza</h5>
+              <p className="text-muted small mb-0">Servicios con estados pendientes que requieren seguimiento</p>
             </div>
-          )}
-          {pendingCharges.length === 0 ? (
-            <div className="alert alert-light border mb-0">Sin cobranzas pendientes.</div>
+            <div className="text-end">
+              <div className="badge bg-warning text-dark fs-6 me-2">{acceptedServices.length} aceptadas</div>
+              <div className="badge bg-danger fs-6">{pendingCharges.length} por cobrar</div>
+            </div>
+          </div>
+
+          {acceptedServices.length === 0 && pendingCharges.length === 0 ? (
+            <div className="alert alert-success border-0 mb-0">
+              <strong>✅ Sin notificaciones pendientes</strong> - Todos los servicios están al día
+            </div>
           ) : (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead className="table-light">
-                  <tr>
-                    <th>Servicio</th>
-                    <th>Cliente</th>
-                    <th>Contacto</th>
-                    <th>Trabajador</th>
-                    <th>Pago</th>
-                    <th>Cotizacion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingCharges.map((service) => {
-                    const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
-                    const amount = toNumber(service.amount ?? service.estimated_price ?? service.total_amount ?? 0);
-                    return (
-                      <tr key={`charge-${service.service_id ?? service.id}`}>
-                        <td>#{service.service_id ?? service.id}</td>
-                        <td>{clientName}</td>
-                        <td>
-                          <div>{clientEmail}</div>
-                          <div className="text-muted small">{clientPhone}</div>
-                        </td>
-                        <td>{service.worker_name || service.assigned_worker_name || "-"}</td>
-                        <td>{service.payment_status || "Pendiente"}</td>
-                        <td>${amount.toLocaleString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {acceptedServices.length > 0 && (
+                <div className="mb-4">
+                  <div className="d-flex align-items-center mb-3 pb-2 border-bottom">
+                    <span className="badge bg-info me-2">⏳ En progreso</span>
+                    <h6 className="mb-0">Cotizaciones aceptadas ({acceptedServices.length})</h6>
+                  </div>
+                  <div className="table-responsive">
+                    <table className="table table-sm table-hover mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th style={{width: "12%"}}>Servicio</th>
+                          <th style={{width: "20%"}}>Cliente</th>
+                          <th style={{width: "18%"}}>Contacto</th>
+                          <th style={{width: "20%"}}>Trabajador</th>
+                          <th style={{width: "15%"}} className="text-end">Cotización</th>
+                          <th style={{width: "15%"}} className="text-center">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {acceptedServices.map((service) => {
+                          const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
+                          const amount = toNumber(service.estimated_price ?? service.amount ?? service.total_amount ?? 0);
+                          return (
+                            <tr key={`accepted-${service.service_id ?? service.id}`}>
+                              <td className="fw-semibold">#{service.service_id ?? service.id}</td>
+                              <td>{clientName}</td>
+                              <td>
+                                <div className="small">{clientEmail}</div>
+                                <div className="text-muted small">{clientPhone}</div>
+                              </td>
+                              <td className="small">{service.worker_name || service.assigned_worker_name || "-"}</td>
+                              <td className="text-end fw-bold">${amount.toLocaleString()}</td>
+                              <td className="text-center"><span className="badge bg-info">Aceptado</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {pendingCharges.length > 0 && (
+                <div>
+                  <div className="d-flex align-items-center mb-3 pb-2 border-bottom">
+                    <span className="badge bg-danger me-2">💰 Cobro pendiente</span>
+                    <h6 className="mb-0">Servicios completados sin pagar ({pendingCharges.length})</h6>
+                  </div>
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th style={{width: "12%"}}>Servicio</th>
+                          <th style={{width: "20%"}}>Cliente</th>
+                          <th style={{width: "18%"}}>Contacto</th>
+                          <th style={{width: "20%"}}>Trabajador</th>
+                          <th style={{width: "15%"}} className="text-end">Monto</th>
+                          <th style={{width: "15%"}} className="text-center">Pago</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingCharges.map((service) => {
+                          const { clientName, clientEmail, clientPhone } = resolveClientInfo(service);
+                          const amount = toNumber(service.amount ?? service.estimated_price ?? service.total_amount ?? 0);
+                          return (
+                            <tr key={`charge-${service.service_id ?? service.id}`}>
+                              <td className="fw-semibold">#{service.service_id ?? service.id}</td>
+                              <td>{clientName}</td>
+                              <td>
+                                <div className="small">{clientEmail}</div>
+                                <div className="text-muted small">{clientPhone}</div>
+                              </td>
+                              <td className="small">{service.worker_name || service.assigned_worker_name || "-"}</td>
+                              <td className="text-end fw-bold">${amount.toLocaleString()}</td>
+                              <td className="text-center"><span className="badge bg-danger">Pendiente</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -51,8 +51,7 @@ export default function WorkerLogin() {
         <div className="card shadow-lg border-0">
           <div className="card-body p-5">
             <div className="text-center mb-4">
-              <div style={{fontSize: "3rem", marginBottom: "1rem"}}>🔧</div>
-              <h2 className="fw-bold">Panel de Trabajador</h2>
+              <h2 className="fw-bold">Panel de trabajador</h2>
               <p className="text-muted">Inicia sesión para ver tus trabajos</p>
             </div>
 

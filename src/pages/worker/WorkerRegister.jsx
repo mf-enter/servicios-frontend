@@ -89,9 +89,8 @@ export default function WorkerRegister() {
           <div className="card shadow-lg border-0">
             <div className="card-body p-5">
               <div className="text-center mb-4">
-                <div style={{fontSize: "3rem", marginBottom: "1rem"}}>🔧</div>
-                <h2 className="fw-bold">Registrate como Trabajador</h2>
-                <p className="text-muted">Únete a nuestra plataforma y comienza a recibir solicitudes</p>
+                <h2 className="fw-bold">Regístrate como trabajador</h2>
+                <p className="text-muted">Completa tu información para recibir solicitudes</p>
               </div>
 
               {error && <div className="alert alert-danger" role="alert">{error}</div>}

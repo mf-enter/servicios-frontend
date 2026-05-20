@@ -24,9 +24,6 @@ export default function Account() {
     lastname: "",
     email: "",
     phone_number: "",
-    address: "",
-    city: "",
-    state: "",
   });
 
   const getHiddenHistoryIds = () => {
@@ -140,9 +137,6 @@ export default function Account() {
           lastname: profileData.lastname || prev.lastname || "",
           email: profileData.email || prev.email || "",
           phone_number: profileData.phone_number || prev.phone_number || "",
-          address: profileData.address || prev.address || "",
-          city: profileData.city || prev.city || "",
-          state: profileData.state || prev.state || "",
         }));
 
         try {
@@ -154,9 +148,6 @@ export default function Account() {
             lastname: profileData.lastname || payload.lastname || "",
             email: profileData.email || payload.email || "",
             phone_number: profileData.phone_number || payload.phone_number || "",
-            address: profileData.address || "",
-            city: profileData.city || "",
-            state: profileData.state || "",
           };
 
           setUser({
@@ -172,7 +163,9 @@ export default function Account() {
           } catch (_) {}
 
           try {
-            window.dispatchEvent(new CustomEvent("profile-updated", { detail: { user_id: userId } }));
+              window.dispatchEvent(new CustomEvent("profile-updated", { detail: { user_id: userId } }));
+              try { localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "user-profile", id: userId })); } catch (_) {}
+              try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
           } catch (_) {}
         } catch (decodeError) {
           console.error("Error decodificando token:", decodeError);
@@ -229,9 +222,6 @@ export default function Account() {
       lastname: profileForm.lastname?.trim() || null,
       email: profileForm.email?.trim() || null,
       phone_number: profileForm.phone_number?.trim() || null,
-      address: profileForm.address?.trim() || null,
-      city: profileForm.city?.trim() || null,
-      state: profileForm.state?.trim() || null,
     };
 
     try {
@@ -278,12 +268,20 @@ export default function Account() {
       await api.delete(`/users/me/history/${serviceId}`);
       hideHistoryId(serviceId);
       setHistoryServicesData((prev) => prev.filter((item) => (item.service_id ?? item.id) !== serviceId));
-      setSuccess("Historial eliminado correctamente.");
+        try {
+          localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "history-delete", id: serviceId }));
+        } catch (_) {}
+        try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
+        setSuccess("Historial eliminado correctamente.");
     } catch (err) {
       // Fallback visual mientras el backend no tenga endpoint.
       if (err.response?.status === 404 || err.response?.status === 405) {
         hideHistoryId(serviceId);
         setHistoryServicesData((prev) => prev.filter((item) => (item.service_id ?? item.id) !== serviceId));
+        try {
+          localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "history-hide", id: serviceId }));
+        } catch (_) {}
+        try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
         setSuccess("Historial ocultado de tu vista.");
       } else {
         setError(apiErrorMessage(err));
@@ -482,9 +480,7 @@ export default function Account() {
         <div className="col-12 col-lg-3">
           <div className="card shadow-sm border-0 sticky-top" style={{ top: 20 }}>
             <div className="card-body text-center">
-              <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-3" style={{ width: 80, height: 80 }}>
-                👤
-              </div>
+                <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-3" style={{ width: 80, height: 80 }} />
               <h5 className="fw-bold">Mi Cuenta</h5>
               <p className="text-muted small">Usuario {user?.role === "admin" ? "Administrador" : user?.role === "worker" ? "Trabajador" : "Cliente"}</p>
 
@@ -495,7 +491,7 @@ export default function Account() {
               </div>
 
               <div className="alert alert-light border text-start small mb-3">
-                <strong>Permisos del cliente:</strong> ver el avance, el trabajador asignado, el domicilio, los pagos y cancelar solicitudes activas.
+                <strong>Permisos del cliente:</strong> ver el avance, el trabajador asignado, los pagos y cancelar solicitudes activas.
               </div>
 
               <button className="btn btn-sm btn-outline-danger w-100" onClick={logout}>
@@ -559,18 +555,6 @@ export default function Account() {
                     <div className="col-12 col-md-6">
                       <label className="form-label">Número</label>
                       <input className="form-control" name="phone_number" value={profileForm.phone_number} onChange={handleProfileInput} />
-                    </div>
-                    <div className="col-12">
-                      <label className="form-label">Domicilio</label>
-                      <input className="form-control" name="address" value={profileForm.address} onChange={handleProfileInput} />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label">Ciudad</label>
-                      <input className="form-control" name="city" value={profileForm.city} onChange={handleProfileInput} />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label">Estado/Provincia</label>
-                      <input className="form-control" name="state" value={profileForm.state} onChange={handleProfileInput} />
                     </div>
                     <div className="col-12">
                       <button type="submit" className="btn btn-primary" disabled={savingProfile}>
