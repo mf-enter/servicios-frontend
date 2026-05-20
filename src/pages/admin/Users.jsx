@@ -8,6 +8,7 @@ const EMPTY_FORM = {
   email: "",
   password: "",
   role: "user",
+  phone_number: "",
 };
 
 export default function Users() {
@@ -94,6 +95,7 @@ export default function Users() {
       email: user.email ?? "",
       password: "",
       role: "user",
+      phone_number: user.phone_number || "",
     });
     setError("");
     setSuccess("");
@@ -123,6 +125,7 @@ export default function Users() {
           lastname: form.lastname.trim(),
           email: form.email.trim(),
           role: "user",
+          phone_number: form.phone_number?.trim() || null,
         };
 
         if (form.password) payload.password = form.password;
@@ -141,6 +144,7 @@ export default function Users() {
           email: form.email.trim(),
           password: form.password,
           role: "user",
+          phone_number: form.phone_number?.trim() || null,
         };
 
         try {
@@ -181,6 +185,8 @@ export default function Users() {
         setEditingId(null);
         setForm(EMPTY_FORM);
       }
+      try { localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "user-delete", id })); } catch (_) {}
+      try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
     } catch (err) {
       setError(apiErrorMessage(err));
     }
@@ -194,7 +200,7 @@ export default function Users() {
           <p className="text-muted mb-0">Gestión de cuentas tipo cliente (rol user).</p>
         </div>
         <button className="btn btn-outline-primary" onClick={startCreate}>
-          + Nuevo usuario
+          Nuevo usuario
         </button>
       </div>
 
@@ -219,6 +225,12 @@ export default function Users() {
                   placeholder="Apellido"
                   value={form.lastname}
                   onChange={(e) => setForm({ ...form, lastname: e.target.value })}
+                />
+                <input
+                  className="form-control"
+                  placeholder="Teléfono"
+                  value={form.phone_number}
+                  onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
                 />
                 <input
                   className="form-control"

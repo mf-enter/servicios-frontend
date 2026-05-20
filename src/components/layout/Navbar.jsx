@@ -10,7 +10,7 @@ export default function Navbar(){
 		<nav className="navbar navbar-expand-lg bg-white border-bottom shadow-sm px-4 py-3">
 			<div className="container-fluid">
 				<Link className="navbar-brand fw-bold text-primary d-flex align-items-center gap-2" to="/">
-					<span className="badge-soft rounded-3 px-2 py-1">🧰</span>
+					<span className="badge-soft rounded-3 px-2 py-1">SP</span>
 					Servicios Pro
 				</Link>
 
@@ -21,7 +21,7 @@ export default function Navbar(){
 					{token ? (
 						<div className="dropdown">
 							<button className="btn btn-light dropdown-toggle d-flex align-items-center gap-2" data-bs-toggle="dropdown">
-								<span className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{width:32,height:32}}>👤</span>
+								<span className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{width:32,height:32}} />
 								<span>Cuenta</span>
 							</button>
 							<ul className="dropdown-menu dropdown-menu-end">

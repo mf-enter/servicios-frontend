@@ -18,6 +18,9 @@ export default function Workers() {
     hourly_rate: "",
     experience_years: "",
     is_verified: false,
+    phone_number: "",
+    username: "",
+    birthdate: "",
   });
 
   const loadWorkers = async () => {
@@ -87,6 +90,9 @@ export default function Workers() {
       hourly_rate: "",
       experience_years: "",
       is_verified: false,
+      phone_number: "",
+      username: "",
+      birthdate: "",
     });
     setEditingId(null);
     setShowForm(false);
@@ -102,6 +108,9 @@ export default function Workers() {
       hourly_rate: worker.hourly_rate || "",
       experience_years: worker.experience_years || "",
       is_verified: worker.is_verified || false,
+      phone_number: worker.phone_number || "",
+      username: worker.username || "",
+      birthdate: worker.birthdate || "",
     });
     setEditingId(worker.worker_id || worker.user_id);
     setShowForm(true);
@@ -130,6 +139,8 @@ export default function Workers() {
       await api.delete(`/workers/${workerId}`);
       setSuccess("Trabajador eliminado exitosamente.");
       loadWorkers();
+      try { localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "worker-delete", id: workerId })); } catch (_) {}
+      try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
     } catch (err) {
       setError(apiErrorMessage(err));
     }
@@ -146,7 +157,7 @@ export default function Workers() {
             else setShowForm(true);
           }}
         >
-          {showForm ? "Cancelar" : "+ Crear Trabajador"}
+          {showForm ? "Cancelar" : "Crear trabajador"}
         </button>
       </div>
 
@@ -190,6 +201,36 @@ export default function Workers() {
                   value={formData.email}
                   onChange={handleInputChange}
                   required
+                />
+              </div>
+              <div className="col-md-6">
+                <input 
+                  type="text"
+                  className="form-control"
+                  placeholder="Nombre de usuario (opcional)"
+                  name="username"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="col-md-6">
+                <input 
+                  type="tel" 
+                  className="form-control" 
+                  placeholder="Teléfono"
+                  name="phone_number"
+                  value={formData.phone_number}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="col-md-6">
+                <input 
+                  type="date" 
+                  className="form-control" 
+                  placeholder="Fecha de nacimiento"
+                  name="birthdate"
+                  value={formData.birthdate}
+                  onChange={handleInputChange}
                 />
               </div>
               {!editingId && (
@@ -291,9 +332,9 @@ export default function Workers() {
                   <td>{w.experience_years || "0"} años</td>
                   <td>
                     {w.is_verified ? (
-                      <span className="badge bg-success">✓ Verificado</span>
+                      <span className="badge bg-success">Verificado</span>
                     ) : (
-                      <span className="badge bg-warning">⚠ Pendiente</span>
+                      <span className="badge bg-warning text-dark">Pendiente</span>
                     )}
                   </td>
                   <td>
@@ -303,7 +344,7 @@ export default function Workers() {
                         onClick={() => handleEdit(w)}
                         title="Editar"
                       >
-                        ✎
+                        Editar
                       </button>
                       {!w.is_verified && (
                         <button 
@@ -311,7 +352,7 @@ export default function Workers() {
                           onClick={() => handleVerify(w.worker_id || w.user_id)}
                           title="Verificar"
                         >
-                          ✓
+                          Verificar
                         </button>
                       )}
                       <button 
@@ -319,7 +360,7 @@ export default function Workers() {
                         onClick={() => handleDelete(w.worker_id || w.user_id)}
                         title="Eliminar"
                       >
-                        ✕
+                        Eliminar
                       </button>
                     </div>
                   </td>

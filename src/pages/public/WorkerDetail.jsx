@@ -228,7 +228,7 @@ export default function WorkerDetail() {
 
               {token && userRole === "worker" && (
                 <div className="alert alert-danger mb-3">
-                  <strong>⚠️ Los trabajadores no pueden contratar servicios.</strong><br/>
+                  <strong>Los trabajadores no pueden contratar servicios.</strong><br/>
                   Solo usuarios pueden contratar trabajadores. Si eres un usuario, inicia sesión con otra cuenta.
                 </div>
               )}

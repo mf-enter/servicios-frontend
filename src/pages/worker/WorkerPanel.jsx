@@ -344,6 +344,10 @@ export default function WorkerPanel() {
       try {
         window.dispatchEvent(new CustomEvent("worker-profile-updated", { detail: { worker_id: workerId } }));
       } catch (_) {}
+      try {
+        localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "worker-profile", id: workerId }));
+      } catch (_) {}
+      try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
       setSuccess("Perfil de trabajador actualizado correctamente y visible en la lista pública.");
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -447,6 +451,12 @@ export default function WorkerPanel() {
     setHistory((prev) => prev.filter((h) => (h.history_id ?? h.service_id ?? h.id) !== historyId));
     setPayments((prev) => prev.filter((payment) => (payment.service_id ?? payment.history_id ?? payment.id) !== serviceId));
     setPendingServices((prev) => prev.filter((service) => (service.service_id ?? service.history_id ?? service.id) !== serviceId));
+    try {
+      localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "history-delete", id: serviceId }));
+    } catch (_) {}
+    try {
+      window.dispatchEvent(new Event("app-data-updated"));
+    } catch (_) {}
     setSuccess("Historial eliminado de esta vista.");
   };
 
@@ -505,6 +515,10 @@ export default function WorkerPanel() {
       try {
         const paymentsRes = await api.get("/payments");
         setPayments(listFromResponse(paymentsRes));
+        try {
+          localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "payment-saved" }));
+        } catch (_) {}
+        try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
       } catch (_) {}
     } catch (err) {
       if (err.response?.status === 409) {
@@ -538,6 +552,10 @@ export default function WorkerPanel() {
       await api.delete(`/payments/${paymentId}`);
       setSuccess("Pago eliminado correctamente.");
       setPayments((prev) => prev.filter((p) => (p.payment_id ?? p.id) !== paymentId));
+      try {
+        localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "payment-delete", id: paymentId }));
+      } catch (_) {}
+      try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
     } catch (err) {
       setError(apiErrorMessage(err));
     }
@@ -689,10 +707,8 @@ export default function WorkerPanel() {
               <div className="card-body text-center">
               <div
                 className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-3"
-                style={{ width: 80, height: 80, fontSize: "2rem" }}
-              >
-                🔧
-              </div>
+                style={{ width: 80, height: 80 }}
+              />
               <h5 className="fw-bold mb-1">{worker?.name ? `${worker.name} ${worker?.lastname || ""}`.trim() : "Mi Panel"}</h5>
               <p className="text-primary fw-semibold mb-2">{worker?.specialty || "Profesional"}</p>
 
@@ -986,7 +1002,7 @@ export default function WorkerPanel() {
               {/* Trabajos Aceptados */}
               {onlyAcceptedServices.length > 0 && (
                 <>
-                  <h4 className="mb-3 mt-4">⚙️ Trabajos En Progreso ({onlyAcceptedServices.length})</h4>
+                  <h4 className="mb-3 mt-4">Trabajos en progreso ({onlyAcceptedServices.length})</h4>
                   <div className="row g-3">
                     {onlyAcceptedServices.map((service) => (
                       <div key={`accepted-${service.service_id}`} className="col-12">
@@ -1010,15 +1026,15 @@ export default function WorkerPanel() {
                                 <div className="btn-group-vertical gap-1 d-flex">
                                   {serviceStatusLower(service) === "aceptado" ? (
                                     <button className="btn btn-sm btn-primary" onClick={() => updateServiceStatus(service.service_id, "En progreso")}>
-                                      ▶ Iniciar servicio
+                                      Iniciar servicio
                                     </button>
                                   ) : (
                                     <button className="btn btn-sm btn-success" onClick={() => updateServiceStatus(service.service_id, "Completado")}>
-                                      ✓ Marcar completado
+                                      Marcar completado
                                     </button>
                                   )}
                                   <button className="btn btn-sm btn-outline-danger" onClick={() => cancelService(service.service_id)}>
-                                    ✕ Cancelar
+                                    Cancelar
                                   </button>
                                 </div>
                               </div>
@@ -1034,7 +1050,7 @@ export default function WorkerPanel() {
               {/* Trabajos Completados/Cancelados - Historial */}
               {history.length > 0 && (
                 <>
-                  <h4 className="mb-3 mt-4">✓ Historial de Trabajos ({history.length})</h4>
+                  <h4 className="mb-3 mt-4">Historial de trabajos ({history.length})</h4>
                   <div className="row g-3">
                     {history.map((service, idx) => (
                       <div key={`history-${service.history_id ?? service.service_id ?? service.id}-${idx}`} className="col-12">
@@ -1088,12 +1104,6 @@ export default function WorkerPanel() {
                         <div className="p-3 bg-light rounded">
                           <div className="text-muted small">Estado</div>
                           <div className="fw-semibold">{getServiceStatusLabel(selectedHistoryItem)}</div>
-                        </div>
-                      </div>
-                      <div className="col-12 col-md-6">
-                        <div className="p-3 bg-light rounded">
-                          <div className="text-muted small">Dirección</div>
-                          <div className="fw-semibold">{getAddress(selectedHistoryItem)}</div>
                         </div>
                       </div>
                       <div className="col-12 col-md-6">
