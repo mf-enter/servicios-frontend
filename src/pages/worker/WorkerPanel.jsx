@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/axios";
-import { apiErrorMessage, listFromResponse } from "../../api/normalize";
+import { apiErrorMessage, itemFromResponse, listFromResponse } from "../../api/normalize";
 
 export default function WorkerPanel() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
   const hiddenHistoryStorageKey = "worker_hidden_history_service_ids";
+  const defaultAddressStorageKey = "worker_default_address_id";
 
   const [activeTab, setActiveTab] = useState("trabajos");
   const [worker, setWorker] = useState(null);
@@ -20,7 +21,21 @@ export default function WorkerPanel() {
     bio: "",
     specialty: "",
     experience_years: "",
+    address_id: "",
   });
+  const [addresses, setAddresses] = useState([]);
+  const [addressForm, setAddressForm] = useState({
+    entity_type: "worker",
+    address_type: "work",
+    postal_code_id: "",
+    street_name: "",
+    ext_number: "",
+    int_number: "",
+    phone_number: "",
+  });
+  const [editingAddressId, setEditingAddressId] = useState(null);
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [saveAddressAsDefault, setSaveAddressAsDefault] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -64,6 +79,7 @@ export default function WorkerPanel() {
       if (normalized && !current.includes(normalized)) {
         current.push(normalized);
         localStorage.setItem(hiddenHistoryStorageKey, JSON.stringify(current));
+        localStorage.setItem("hidden_history_service_ids", JSON.stringify(current));
       }
     } catch (_) {}
   };
@@ -132,10 +148,136 @@ export default function WorkerPanel() {
       customer_name: service.customer_name || fullName || service.client_name || "",
       client_phone: service.client_phone || service.address_phone_number || clientProfile.phone_number || clientProfile.phone || "",
       client_email: service.client_email || clientProfile.email || "",
-      client_address: service.client_address || clientProfile.address || "",
-      client_city: service.client_city || clientProfile.city || "",
-      client_state: service.client_state || clientProfile.state || "",
     };
+  };
+
+  const getAddressLabel = (address) => {
+    if (!address) return "Domicilio no disponible";
+    if (typeof address === "string") return address;
+
+    const lineOne = [address.street_name, address.ext_number, address.int_number].filter(Boolean).join(" ");
+    const lineTwo = [address.city_name, address.state_name, address.country_name].filter(Boolean).join(", ");
+    const parts = [lineOne, lineTwo, address.postal_code ? `CP ${address.postal_code}` : ""].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(" - ") : "Domicilio no disponible";
+  };
+
+  const getServiceAddressDetail = (address) => {
+    if (!address) return "Domicilio no disponible";
+    const parts = [
+      [address.street_name, address.ext_number, address.int_number].filter(Boolean).join(" "),
+      [address.settlement_name, address.city_name, address.state_name, address.country_name].filter(Boolean).join(", "),
+      address.postal_code ? `CP ${address.postal_code}` : "",
+      address.phone_number ? `Tel. ${address.phone_number}` : "",
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" - ") : "Domicilio no disponible";
+  };
+
+  const formatCompactAddress = (address) => {
+    if (!address) return "Domicilio no disponible";
+    if (typeof address === "string") return address;
+
+    const streetLine = [address.street_name, address.ext_number, address.int_number ? `Int ${address.int_number}` : ""]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    const cityName = address.city_name ?? "";
+    const parts = [streetLine, cityName].filter(Boolean);
+    return parts.length > 0 ? `${parts[0] || ""}${parts[1] ? `, ${parts[1]}` : ""}`.trim() : "Domicilio no disponible";
+  };
+
+  const getServiceTimeline = (service) => service?.timeline ?? service ?? {};
+
+  const getWorkerProfileStorageKeys = (workerData, workerId) => {
+    const keys = new Set();
+    const normalizedWorkerId = workerId ? String(workerId) : "";
+    const workerKey = workerData?.worker_id ? String(workerData.worker_id) : "";
+    const userKey = workerData?.user_id ? String(workerData.user_id) : "";
+
+    if (normalizedWorkerId) keys.add(`worker_profile_${normalizedWorkerId}`);
+    if (workerKey) keys.add(`worker_profile_${workerKey}`);
+    if (userKey) keys.add(`worker_profile_${userKey}`);
+
+    return Array.from(keys);
+  };
+
+  const formatDisplayDate = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("es-ES", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  };
+
+  const getServiceClientAddress = (service) => {
+    return (
+      service?.address ??
+      service?.client_address ??
+      service?.customer_address ??
+      service?.user_address ??
+      service?.service_address ??
+      service?.delivery_address ??
+      service?.request_address ??
+      null
+    );
+  };
+
+  const getServiceTimelineValue = (service, key) => {
+    const timeline = getServiceTimeline(service);
+    const timelineKeys = {
+      request_date: ["request_date", "requested_at", "created_at"],
+      accepted_at: ["accepted_at", "accepted_date", "accepted_on"],
+      started_at: ["started_at", "started_date", "started_on"],
+      finished_at: ["finished_at", "finished_date", "completed_at", "completed_on"],
+    };
+    const keys = timelineKeys[key] || [key];
+
+    for (const source of [timeline, service]) {
+      for (const candidateKey of keys) {
+        const value = source?.[candidateKey];
+        if (value) return formatDisplayDate(value);
+      }
+    }
+
+    return "-";
+  };
+
+  const getTimelineValue = (service, key) => {
+    return getServiceTimelineValue(service, key);
+  };
+
+  const syncDefaultAddress = async (addressId) => {
+    const normalizedId = addressId ? String(addressId) : "";
+    await api.put("/workers/me/profile", { address_id: normalizedId ? Number(normalizedId) : null });
+    setProfileForm((prev) => ({ ...prev, address_id: normalizedId }));
+    setWorker((prev) => (prev ? { ...prev, address_id: normalizedId ? Number(normalizedId) : null } : prev));
+    try {
+      localStorage.setItem(defaultAddressStorageKey, normalizedId);
+      const storedProfile = JSON.parse(localStorage.getItem(`worker_profile_${worker?.worker_id ?? worker?.user_id}`) || "{}");
+      const updatedProfile = { ...storedProfile, address_id: normalizedId ? Number(normalizedId) : null };
+      if (worker?.worker_id ?? worker?.user_id) {
+        for (const storageKey of getWorkerProfileStorageKeys(worker, worker?.worker_id ?? worker?.user_id)) {
+          localStorage.setItem(storageKey, JSON.stringify(updatedProfile));
+        }
+      }
+    } catch (_) {}
+  };
+
+  const clearAddressForm = () => {
+    setAddressForm({
+      entity_type: "worker",
+      address_type: "work",
+      postal_code_id: "",
+      street_name: "",
+      ext_number: "",
+      int_number: "",
+      phone_number: "",
+    });
+    setEditingAddressId(null);
+    setSaveAddressAsDefault(false);
   };
 
   const normalizeIncomingServices = (items) => filterHiddenServices(items).map(enrichServiceWithClientProfile);
@@ -154,6 +296,70 @@ export default function WorkerPanel() {
     };
 
     return statusMap[statusId] || "Pendiente";
+  };
+
+  const refreshWorkerServices = async (mounted = true) => {
+    const [servicesRes, historyRes] = await Promise.allSettled([
+      api.get("/workers/me/services"),
+      api.get("/workers/me/history"),
+    ]);
+
+    if (!mounted) return;
+
+    if (servicesRes.status === "fulfilled") {
+      setPendingServices(normalizeIncomingServices(listFromResponse(servicesRes.value)));
+    }
+
+    if (historyRes.status === "fulfilled") {
+      setHistory(normalizeIncomingServices(listFromResponse(historyRes.value)));
+    }
+  };
+
+  const fetchServiceById = async (serviceId) => {
+    const response = await api.get(`/services/${serviceId}`);
+    const service = itemFromResponse(response) || response?.data?.data || response?.data || null;
+    return service;
+  };
+
+  const upsertWorkerService = (serviceData) => {
+    if (!serviceData) return;
+    const serviceId = serviceData.service_id ?? serviceData.id;
+    if (!serviceId) return;
+
+    const normalized = enrichServiceWithClientProfile(serviceData);
+
+    setPendingServices((prev) => {
+      const exists = prev.some((service) => (service.service_id ?? service.id) === serviceId);
+      if (!exists) return prev;
+      return prev.map((service) => ((service.service_id ?? service.id) === serviceId ? { ...service, ...normalized } : service));
+    });
+
+    setHistory((prev) => {
+      const exists = prev.some((service) => (service.service_id ?? service.id) === serviceId);
+      if (!exists) return prev;
+      return prev.map((service) => ((service.service_id ?? service.id) === serviceId ? { ...service, ...normalized } : service));
+    });
+
+    setSelectedHistoryItem((prev) => {
+      if (!prev) return prev;
+      const prevId = prev.service_id ?? prev.id;
+      return prevId === serviceId ? { ...prev, ...normalized } : prev;
+    });
+
+    setWorker((prev) => {
+      if (!prev?.latest_service) return prev;
+      const prevLatestId = prev.latest_service.service_id ?? prev.latest_service.id;
+      return prevLatestId === serviceId ? { ...prev, latest_service: { ...prev.latest_service, ...normalized } } : prev;
+    });
+  };
+
+  const broadcastDataUpdated = (type, id) => {
+    try {
+      localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type, id }));
+    } catch (_) {}
+    try {
+      window.dispatchEvent(new Event("app-data-updated"));
+    } catch (_) {}
   };
 
   useEffect(() => {
@@ -178,19 +384,35 @@ export default function WorkerPanel() {
 
         const workerId = payload?.worker_id ?? payload?.user_id;
 
-        const [servicesResponse, historyResponse, profileResponse] = await Promise.allSettled([
+        const [servicesResponse, historyResponse, profileResponse, addressesResponse] = await Promise.allSettled([
           api.get("/workers/me/services"),
           api.get("/workers/me/history"),
           api.get("/workers/me/profile"),
+          api.get("/addresses"),
         ]);
 
         if (!mounted) return;
 
-        // Extraer datos del perfil del backend
-        let profileData = {};
-        if (profileResponse.status === "fulfilled" && profileResponse.value?.data) {
-          profileData = profileResponse.value.data;
-        }
+        const localProfile = (() => {
+          try {
+            const key = `worker_profile_${workerId}`;
+            return JSON.parse(localStorage.getItem(key) || "{}");
+          } catch (_) {
+            return {};
+          }
+        })();
+        const remoteProfile = profileResponse.status === "fulfilled" ? itemFromResponse(profileResponse.value) || {} : {};
+        const profileData = {
+          ...localProfile,
+          ...remoteProfile,
+          address: remoteProfile?.address ?? localProfile?.address ?? null,
+        };
+
+        setAddresses(
+          addressesResponse.status === "fulfilled"
+            ? listFromResponse(addressesResponse.value).filter((address) => !address?.entity_type || address.entity_type === "worker")
+            : []
+        );
 
         const workerData = {
           user_id: workerId,
@@ -205,6 +427,8 @@ export default function WorkerPanel() {
           specialty: profileData.specialty || payload?.specialty || "",
           hourly_rate: profileData.hourly_rate || payload?.hourly_rate || "",
           experience_years: profileData.experience_years || payload?.experience_years || "",
+          address_id: profileData.address_id || profileData.address?.address_id || localStorage.getItem(defaultAddressStorageKey) || payload?.address_id || "",
+          latest_service: profileData.latest_service || null,
         };
 
         setWorker(workerData);
@@ -216,7 +440,21 @@ export default function WorkerPanel() {
           bio: workerData.bio || "",
           specialty: workerData.specialty || "",
           experience_years: workerData.experience_years || "",
+          address_id: workerData.address_id || "",
         });
+
+        if (profileData.address) {
+          setAddressForm({
+            entity_type: profileData.address.entity_type || "worker",
+            address_type: profileData.address.address_type || "work",
+            postal_code_id: profileData.address.postal_code_id || "",
+            street_name: profileData.address.street_name || "",
+            ext_number: profileData.address.ext_number || "",
+            int_number: profileData.address.int_number || "",
+            phone_number: profileData.address.phone_number || "",
+          });
+          setEditingAddressId(profileData.address.address_id || null);
+        }
 
         setPendingServices(
           servicesResponse.status === "fulfilled" ? normalizeIncomingServices(listFromResponse(servicesResponse.value)) : []
@@ -240,21 +478,17 @@ export default function WorkerPanel() {
 
     const intervalId = setInterval(() => {
       if (mounted) {
-        const refreshData = async () => {
-          try {
-            const [servicesRes, historyRes] = await Promise.allSettled([
-              api.get("/workers/me/services"),
-              api.get("/workers/me/history"),
-            ]);
-            if (mounted) {
-              if (servicesRes.status === "fulfilled") setPendingServices(normalizeIncomingServices(listFromResponse(servicesRes.value)));
-              if (historyRes.status === "fulfilled") setHistory(normalizeIncomingServices(listFromResponse(historyRes.value)));
-            }
-          } catch (_) {}
-        };
-        refreshData();
+        refreshWorkerServices(mounted).catch(() => {});
       }
     }, 10000);
+
+    const handleFocus = () => {
+      refreshWorkerServices(mounted).catch(() => {});
+    };
+
+    const handleAppDataUpdated = () => {
+      refreshWorkerServices(mounted).catch(() => {});
+    };
 
     const handleProfileUpdated = (e) => {
       try {
@@ -292,12 +526,16 @@ export default function WorkerPanel() {
     };
 
     window.addEventListener("profile-updated", handleProfileUpdated);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("app-data-updated", handleAppDataUpdated);
     window.addEventListener("storage", handleStorage);
 
     return () => {
       mounted = false;
       clearInterval(intervalId);
       window.removeEventListener("profile-updated", handleProfileUpdated);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("app-data-updated", handleAppDataUpdated);
       window.removeEventListener("storage", handleStorage);
     };
   }, [token, navigate]);
@@ -318,14 +556,7 @@ export default function WorkerPanel() {
 
     const workerId = worker.worker_id ?? worker.user_id;
     const payload = {
-      name: profileForm.name?.trim() || worker?.name || "",
-      lastname: profileForm.lastname?.trim() || worker?.lastname || "",
-      email: profileForm.email?.trim() || worker?.email || "",
-      phone_number: profileForm.phone_number?.trim() || worker?.phone_number || "",
-      bio: profileForm.bio?.trim() || worker?.bio || "",
-      hourly_rate: Number(profileForm.hourly_rate || 0),
-      specialty: profileForm.specialty?.trim() || worker?.specialty || "",
-      experience_years: Number(profileForm.experience_years || 0),
+      address_id: profileForm.address_id ? Number(profileForm.address_id) : null,
     };
 
     try {
@@ -333,13 +564,37 @@ export default function WorkerPanel() {
       setError("");
       setSuccess("");
 
-      // Usar /workers/me/profile para editar el perfil del trabajador autenticado
-      await api.put(`/workers/me/profile`, payload);
+      const response = await api.put(`/workers/me/profile`, payload);
+      const savedProfile = itemFromResponse(response) || {};
+      const workerProfileStorageKey = `worker_profile_${workerId}`;
+      const mergedProfile = {
+        ...worker,
+        ...savedProfile,
+        user_id: workerId,
+        worker_id: worker?.worker_id ?? null,
+        name: profileForm.name?.trim() || savedProfile.name || worker?.name || "",
+        lastname: profileForm.lastname?.trim() || savedProfile.lastname || worker?.lastname || "",
+        email: profileForm.email?.trim() || savedProfile.email || worker?.email || "",
+        phone_number: profileForm.phone_number?.trim() || savedProfile.phone_number || worker?.phone_number || "",
+        bio: profileForm.bio?.trim() || savedProfile.bio || worker?.bio || "",
+        specialty: profileForm.specialty?.trim() || savedProfile.specialty || worker?.specialty || "",
+        experience_years:
+          profileForm.experience_years !== ""
+            ? Number(profileForm.experience_years)
+            : savedProfile.experience_years ?? worker?.experience_years ?? "",
+        hourly_rate: savedProfile.hourly_rate ?? worker?.hourly_rate ?? "",
+        address_id: payload.address_id,
+        address: savedProfile?.address || worker?.address || null,
+        latest_service: savedProfile?.latest_service || worker?.latest_service || null,
+      };
 
-      setWorker((prev) => ({ ...prev, ...payload }));
+      setWorker(mergedProfile);
       try {
         // Guardar una copia local para sincronización instantánea en vistas públicas
-        localStorage.setItem(`worker_profile_${workerId}`, JSON.stringify(payload));
+        for (const storageKey of getWorkerProfileStorageKeys(worker, workerId)) {
+          localStorage.setItem(storageKey, JSON.stringify(mergedProfile));
+        }
+        localStorage.setItem(defaultAddressStorageKey, payload.address_id ? String(payload.address_id) : "");
       } catch (_) {}
       try {
         window.dispatchEvent(new CustomEvent("worker-profile-updated", { detail: { worker_id: workerId } }));
@@ -348,7 +603,7 @@ export default function WorkerPanel() {
         localStorage.setItem("app:data-updated", JSON.stringify({ ts: Date.now(), type: "worker-profile", id: workerId }));
       } catch (_) {}
       try { window.dispatchEvent(new Event("app-data-updated")); } catch (_) {}
-      setSuccess("Perfil de trabajador actualizado correctamente y visible en la lista pública.");
+      setSuccess("Dirección por defecto actualizada correctamente.");
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -356,14 +611,78 @@ export default function WorkerPanel() {
     }
   };
 
+  const handleAddressInput = (event) => {
+    const { name, value } = event.target;
+    setAddressForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const saveAddress = async (event) => {
+    event.preventDefault();
+
+    const payload = {
+      entity_type: addressForm.entity_type || "worker",
+      address_type: addressForm.address_type || "work",
+      postal_code_id: Number(addressForm.postal_code_id),
+      street_name: addressForm.street_name?.trim() || "",
+      ext_number: addressForm.ext_number?.trim() || "",
+      int_number: addressForm.int_number?.trim() || null,
+      phone_number: addressForm.phone_number?.trim() || "",
+    };
+
+    try {
+      setSavingAddress(true);
+      setError("");
+      setSuccess("");
+
+      const response = editingAddressId
+        ? await api.put(`/addresses/${editingAddressId}`, payload)
+        : await api.post("/addresses", payload);
+
+      const savedAddress = itemFromResponse(response) || response?.data?.data || response?.data || {};
+      const savedAddressId = savedAddress?.address_id || editingAddressId;
+
+      if (saveAddressAsDefault && savedAddressId) {
+        await syncDefaultAddress(savedAddressId);
+      }
+
+      const refreshedAddresses = await api.get("/addresses").then((res) => listFromResponse(res).filter((address) => !address?.entity_type || address.entity_type === "worker"));
+      setAddresses(refreshedAddresses);
+
+      if (savedAddressId) {
+        setProfileForm((prev) => ({ ...prev, address_id: String(savedAddressId) }));
+      }
+      clearAddressForm();
+      setSuccess(editingAddressId ? "Dirección actualizada correctamente." : "Dirección creada correctamente.");
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setSavingAddress(false);
+    }
+  };
+
+  const editAddress = (address) => {
+    setAddressForm({
+      entity_type: address?.entity_type || "worker",
+      address_type: address?.address_type || "work",
+      postal_code_id: address?.postal_code_id || "",
+      street_name: address?.street_name || "",
+      ext_number: address?.ext_number || "",
+      int_number: address?.int_number || "",
+      phone_number: address?.phone_number || "",
+    });
+    setEditingAddressId(address?.address_id || null);
+    setSaveAddressAsDefault(true);
+  };
+
   const updateServiceStatus = async (serviceId, newStatus) => {
     try {
       setError("");
       setSuccess("");
       await api.patch(`/services/${serviceId}/status`, { status_name: newStatus });
-      setPendingServices((prev) =>
-        prev.map((s) => (s.service_id === serviceId ? { ...s, status_name: newStatus } : s))
-      );
+      const updatedService = await fetchServiceById(serviceId).catch(() => null);
+      if (updatedService) upsertWorkerService(updatedService);
+      else await refreshWorkerServices();
+      broadcastDataUpdated("service-status", serviceId);
       setSuccess(`Trabajo #${serviceId} actualizado a "${newStatus}"`);
     } catch (err) {
       if (err.response?.status === 409) {
@@ -388,9 +707,10 @@ export default function WorkerPanel() {
       setSuccess("");
       await api.patch(`/services/${serviceId}/cancel`);
 
-      setPendingServices((prev) =>
-        prev.map((s) => (s.service_id === serviceId ? { ...s, status_name: "Cancelado" } : s))
-      );
+      const updatedService = await fetchServiceById(serviceId).catch(() => null);
+      if (updatedService) upsertWorkerService(updatedService);
+      else await refreshWorkerServices();
+      broadcastDataUpdated("service-cancel", serviceId);
       setSuccess(`Trabajo #${serviceId} cancelado`);
     } catch (err) {
       if (err.response?.status === 409) {
@@ -422,10 +742,10 @@ export default function WorkerPanel() {
       await api.post(`/services/${serviceId}/quote`, { estimated_price: amount });
 
       // Refrescar lista de servicios del trabajador
-      try {
-        const res = await api.get('/workers/me/services');
-        setPendingServices(listFromResponse(res));
-      } catch (_) {}
+      const updatedService = await fetchServiceById(serviceId).catch(() => null);
+      if (updatedService) upsertWorkerService(updatedService);
+      else await refreshWorkerServices();
+      broadcastDataUpdated("service-quote", serviceId);
 
       setSuccess(`Cotización enviada para el servicio #${serviceId}.`);
       setQuoteInputs((prev) => ({ ...prev, [serviceId]: '' }));
@@ -460,8 +780,18 @@ export default function WorkerPanel() {
     setSuccess("Historial eliminado de esta vista.");
   };
 
-  const openHistoryDetails = (historyItem) => {
+  const openHistoryDetails = async (historyItem) => {
     setSelectedHistoryItem(historyItem);
+    const serviceId = historyItem?.service_id ?? historyItem?.id;
+    if (!serviceId) return;
+
+    try {
+      const freshService = await fetchServiceById(serviceId);
+      if (freshService) {
+        upsertWorkerService(freshService);
+        setSelectedHistoryItem((prev) => (prev ? { ...prev, ...freshService } : freshService));
+      }
+    } catch (_) {}
   };
 
   const closeHistoryDetails = () => {
@@ -561,62 +891,8 @@ export default function WorkerPanel() {
     }
   };
 
-  const getAddress = (service) => {
-    try {
-      // Si el backend responde explícitamente con address_id null
-      if (Object.prototype.hasOwnProperty.call(service, "address_id") && (service.address_id === null || service.address_id === undefined)) {
-        return "Domicilio no disponible (no asociado en backend)";
-      }
-    } catch (_) {}
-    const normalizeValue = (value) => {
-      if (value === null || value === undefined) return "";
-      if (typeof value !== "string") return String(value).trim();
-      return value.trim();
-    };
-
-    const joinParts = (...parts) => parts.map(normalizeValue).filter(Boolean).join(", ");
-
-    const directCandidates = [
-      service?.full_address,
-      service?.address,
-      service?.domicilio,
-      service?.direccion,
-      service?.client_address,
-      service?.client_full_address,
-      service?.client_location,
-      service?.service_address,
-      service?.location,
-      service?.address_line,
-      service?.address_line1,
-      service?.street_address,
-      service?.customer_address,
-      service?.user_address,
-    ];
-
-    const nestedCandidates = [
-      service?.client?.address,
-      service?.client?.full_address,
-      service?.client?.domicilio,
-      service?.customer?.address,
-      service?.user?.address,
-      service?.profile?.address,
-    ];
-
-    const compositeCandidates = [
-      joinParts(service?.client_address, service?.client_city, service?.client_state),
-      joinParts(service?.address_line, service?.city_name, service?.state_name),
-      joinParts(service?.street_name, service?.ext_number, service?.city_name, service?.state_name),
-      joinParts(service?.client?.address, service?.client?.city, service?.client?.state),
-      joinParts(service?.customer?.address, service?.customer?.city, service?.customer?.state),
-      joinParts(service?.user?.address, service?.user?.city, service?.user?.state),
-    ];
-
-    const firstFound = [...directCandidates, ...nestedCandidates, ...compositeCandidates]
-      .map(normalizeValue)
-      .find(Boolean);
-
-    return firstFound || "Domicilio no disponible";
-  };
+  const getAddress = (service) => getServiceAddressDetail(service?.address);
+  const getClientAddress = (service) => formatCompactAddress(getServiceClientAddress(service));
 
   const getClientPhone = (service) => {
     return (
@@ -642,10 +918,29 @@ export default function WorkerPanel() {
   const statusLower = (value) => String(value ?? "").toLowerCase();
   const serviceStatusLower = (service) => getServiceStatusLabel(service).toLowerCase();
 
+  const getServiceQuoteAmount = (service) => {
+    const candidates = [
+      service?.estimated_price,
+      service?.latest_quote?.amount,
+      service?.latest_quote?.estimated_price,
+      service?.quote?.amount,
+      service?.quote?.estimated_price,
+      service?.amount,
+      service?.total_amount,
+    ];
+
+    const value = candidates.find((candidate) => {
+      const numeric = Number(candidate);
+      return candidate !== undefined && candidate !== null && candidate !== "" && Number.isFinite(numeric) && numeric > 0;
+    });
+
+    return Number(value ?? 0);
+  };
+
   const totalCollected = useMemo(() => {
     return history
       .filter((s) => statusLower(s.payment_status) === "completado" || serviceStatusLower(s) === "completado")
-      .reduce((acc, s) => acc + Number(s.amount ?? s.estimated_price ?? s.total_amount ?? 0), 0);
+      .reduce((acc, s) => acc + getServiceQuoteAmount(s), 0);
   }, [history]);
 
   const pendingAmount = useMemo(() => {
@@ -654,7 +949,7 @@ export default function WorkerPanel() {
         const payment = statusLower(s.payment_status);
         return payment !== "completado" && payment !== "paid";
       })
-      .reduce((acc, s) => acc + Number(s.amount ?? s.estimated_price ?? s.total_amount ?? 0), 0);
+      .reduce((acc, s) => acc + getServiceQuoteAmount(s), 0);
   }, [pendingServices]);
 
   const totalJobs = pendingServices.length + history.length;
@@ -689,12 +984,12 @@ export default function WorkerPanel() {
       ...pendingServices.map((s) => ({
         service_id: s.service_id,
         display: `#${s.service_id} - ${s.client_name || "Cliente"} (${getServiceStatusLabel(s)})`,
-        amount: s.estimated_price || s.amount || 0,
+        amount: getServiceQuoteAmount(s),
       })),
       ...history.map((h) => ({
         service_id: h.service_id,
         display: `#${h.service_id} - ${h.client_name || "Cliente"} (${getServiceStatusLabel(h)})`,
-        amount: h.estimated_price || h.amount || 0,
+        amount: getServiceQuoteAmount(h),
       })),
     ];
     return combined.filter((v, i, a) => a.findIndex((t) => t.service_id === v.service_id) === i);
@@ -814,6 +1109,24 @@ export default function WorkerPanel() {
           {success && <div className="alert alert-success">{success}</div>}
 
           {activeTab === "perfil" ? (
+            <>
+              {worker?.latest_service ? (
+                <div className="card shadow-sm border-0 mb-4">
+                  <div className="card-body">
+                    <h5 className="mb-3">Último servicio</h5>
+                    <div className="small text-muted mb-2">
+                      <div><strong>Servicio:</strong> #{worker.latest_service.service_id ?? worker.latest_service.id ?? "-"}</div>
+                      <div><strong>Estado:</strong> {getServiceStatusLabel(worker.latest_service)}</div>
+                      <div><strong>Dirección:</strong> {getClientAddress(worker.latest_service)}</div>
+                      <div><strong>Solicitado:</strong> {getTimelineValue(worker.latest_service, "request_date")}</div>
+                      <div><strong>Aceptado:</strong> {getTimelineValue(worker.latest_service, "accepted_at")}</div>
+                      <div><strong>Iniciado:</strong> {getTimelineValue(worker.latest_service, "started_at")}</div>
+                      <div><strong>Terminado:</strong> {getTimelineValue(worker.latest_service, "finished_at")}</div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
             <div className="card shadow-sm border-0 mb-4">
               <div className="card-body">
                 <h5 className="mb-3">Configuración del perfil</h5>
@@ -836,6 +1149,18 @@ export default function WorkerPanel() {
                   <div className="col-12 col-md-6">
                     <label className="form-label">Teléfono</label>
                     <input className="form-control" name="phone_number" value={profileForm.phone_number} onChange={handleProfileInput} />
+                  </div>
+                  <div className="col-12">
+                    <label className="form-label">Dirección</label>
+                    <select className="form-select" name="address_id" value={profileForm.address_id} onChange={handleProfileInput}>
+                      <option value="">Usar la dirección guardada por defecto</option>
+                      {addresses.map((address) => (
+                        <option key={address.address_id} value={address.address_id}>
+                          #{address.address_id} - {getAddressLabel(address)}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="form-text">Esta dirección se usará para las solicitudes asociadas a tu perfil.</div>
                   </div>
                   <div className="col-12 col-md-6">
                     <label className="form-label">Profesión / Especialidad</label>
@@ -868,6 +1193,96 @@ export default function WorkerPanel() {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+            </>
+          ) : null}
+
+          {activeTab === "perfil" ? (
+            <div className="card shadow-sm border-0 mb-4">
+              <div className="card-body">
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                  <div>
+                    <h5 className="mb-1">Direcciones guardadas</h5>
+                    <p className="text-muted small mb-0">Crea o edita una dirección y, si quieres, guárdala como dirección por defecto.</p>
+                  </div>
+                  {profileForm.address_id ? <span className="badge bg-primary">Default: #{profileForm.address_id}</span> : null}
+                </div>
+
+                <form onSubmit={saveAddress} className="row g-3">
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Entity type</label>
+                    <input className="form-control" name="entity_type" value={addressForm.entity_type} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Address type</label>
+                    <input className="form-control" name="address_type" value={addressForm.address_type} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-4">
+                    <label className="form-label">Postal code ID</label>
+                    <input className="form-control" type="number" name="postal_code_id" value={addressForm.postal_code_id} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-4">
+                    <label className="form-label">Street name</label>
+                    <input className="form-control" name="street_name" value={addressForm.street_name} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-4">
+                    <label className="form-label">Ext number</label>
+                    <input className="form-control" name="ext_number" value={addressForm.ext_number} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Int number</label>
+                    <input className="form-control" name="int_number" value={addressForm.int_number} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Phone number</label>
+                    <input className="form-control" name="phone_number" value={addressForm.phone_number} onChange={handleAddressInput} />
+                  </div>
+                  <div className="col-12 d-flex gap-3 align-items-center flex-wrap">
+                    <div className="form-check">
+                      <input className="form-check-input" type="checkbox" id="saveDefaultWorkerAddress" checked={saveAddressAsDefault} onChange={(e) => setSaveAddressAsDefault(e.target.checked)} />
+                      <label className="form-check-label" htmlFor="saveDefaultWorkerAddress">Guardar como dirección por defecto</label>
+                    </div>
+                    <button type="submit" className="btn btn-primary" disabled={savingAddress}>
+                      {savingAddress ? "Guardando..." : editingAddressId ? "Actualizar dirección" : "Crear dirección"}
+                    </button>
+                    {editingAddressId ? (
+                      <button type="button" className="btn btn-outline-secondary" onClick={clearAddressForm}>
+                        Cancelar edición
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+
+                <div className="table-responsive mt-4">
+                  <table className="table table-sm align-middle">
+                    <thead className="table-light">
+                      <tr>
+                        <th>ID</th>
+                        <th>Dirección</th>
+                        <th>Tipo</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {addresses.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="text-muted">No hay direcciones guardadas.</td>
+                        </tr>
+                      ) : addresses.map((address) => (
+                        <tr key={address.address_id}>
+                          <td>#{address.address_id}</td>
+                          <td>{getAddressLabel(address)}</td>
+                          <td>{address.address_type || "-"}</td>
+                          <td className="d-flex gap-2 flex-wrap">
+                            <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => editAddress(address)}>Editar</button>
+                            <button type="button" className="btn btn-sm btn-outline-success" onClick={() => syncDefaultAddress(address.address_id)}>Usar por defecto</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           ) : null}
@@ -962,8 +1377,10 @@ export default function WorkerPanel() {
                                   <span><strong>Cliente:</strong> {service.client_name || "Sin nombre"}</span>
                                   <span><strong>Teléfono:</strong> {getClientPhone(service)}</span>
                                   <span><strong>Correo:</strong> {getClientEmail(service)}</span>
-                                  <span><strong>Cotizacion:</strong> ${service.estimated_price || "Pendiente de cotizacion"}</span>
-                                  {/* Domicilio removido según solicitud */}
+                                  <span><strong>Tipo:</strong> {service.service_type_name || service.service_type_id || "-"}</span>
+                                  <span><strong>Cotización:</strong> {getServiceQuoteAmount(service) > 0 ? `$${getServiceQuoteAmount(service).toLocaleString()}` : "Pendiente de cotización"}</span>
+                                  <span><strong>Dirección:</strong> {getClientAddress(service)}</span>
+                                  <span><strong>Pedido:</strong> {getTimelineValue(service, "request_date")}</span>
                                 </div>
                                 <div className="mt-3 d-flex gap-2 align-items-center">
                                   <input
@@ -1018,8 +1435,10 @@ export default function WorkerPanel() {
                                 <div className="d-flex gap-3 flex-wrap small">
                                   <span><strong>Cliente:</strong> {service.client_name || "Sin nombre"}</span>
                                   <span><strong>Teléfono:</strong> {getClientPhone(service)}</span>
-                                  <span><strong>Cotizacion:</strong> ${service.estimated_price || "Pendiente de cotizacion"}</span>
-                                  {/* Domicilio removido según solicitud */}
+                                  <span><strong>Tipo:</strong> {service.service_type_name || service.service_type_id || "-"}</span>
+                                  <span><strong>Cotización:</strong> {getServiceQuoteAmount(service) > 0 ? `$${getServiceQuoteAmount(service).toLocaleString()}` : "Pendiente de cotización"}</span>
+                                  <span><strong>Dirección:</strong> {getClientAddress(service)}</span>
+                                  <span><strong>Inicio:</strong> {getTimelineValue(service, "started_at")}</span>
                                 </div>
                               </div>
                               <div className="col-auto">
@@ -1063,8 +1482,9 @@ export default function WorkerPanel() {
                                 <div className="small text-muted">
                                   <span className="me-3"><strong>Cliente:</strong> {service.client_name || service.customer_name || '-'}</span>
                                   <span className="me-3"><strong>Estado:</strong> {getServiceStatusLabel(service) || service.payment_status || '-'}</span>
-                                  <span className="me-3"><strong>Cotizacion final:</strong> ${Number(service.amount ?? service.estimated_price ?? service.total_amount ?? 0).toLocaleString()}</span>
-                                  {/* Domicilio removido según solicitud */}
+                                  <span className="me-3"><strong>Cotización final:</strong> {getServiceQuoteAmount(service) > 0 ? `$${getServiceQuoteAmount(service).toLocaleString()}` : "Pendiente"}</span>
+                                  <span className="me-3"><strong>Dirección:</strong> {getClientAddress(service)}</span>
+                                  <span className="me-3"><strong>Solicitado:</strong> {getTimelineValue(service, "request_date")}</span>
                                 </div>
                               </div>
                               <div className="btn-group-vertical">
@@ -1109,7 +1529,7 @@ export default function WorkerPanel() {
                       <div className="col-12 col-md-6">
                         <div className="p-3 bg-light rounded">
                           <div className="text-muted small">Cotización final</div>
-                          <div className="fw-semibold">${Number(selectedHistoryItem.amount ?? selectedHistoryItem.estimated_price ?? selectedHistoryItem.total_amount ?? 0).toLocaleString()}</div>
+                          <div className="fw-semibold">{getServiceQuoteAmount(selectedHistoryItem) > 0 ? `$${getServiceQuoteAmount(selectedHistoryItem).toLocaleString()}` : "Pendiente"}</div>
                         </div>
                       </div>
                       <div className="col-12">
@@ -1125,7 +1545,16 @@ export default function WorkerPanel() {
                             <div><strong>Teléfono:</strong> {getClientPhone(selectedHistoryItem)}</div>
                             <div><strong>Correo:</strong> {getClientEmail(selectedHistoryItem)}</div>
                             <div><strong>Servicio:</strong> #{selectedHistoryItem.service_id}</div>
+                            <div><strong>Tipo:</strong> {selectedHistoryItem.service_type_name || selectedHistoryItem.service_type_id || "-"}</div>
+                            <div><strong>Worker:</strong> {selectedHistoryItem.worker_name ? `${selectedHistoryItem.worker_name} ${selectedHistoryItem.worker_lastname || ''}` : "Tú"}</div>
+                            <div><strong>Worker email:</strong> {selectedHistoryItem.worker_email || "-"}</div>
+                            <div><strong>Cotización:</strong> {getServiceQuoteAmount(selectedHistoryItem) > 0 ? `$${getServiceQuoteAmount(selectedHistoryItem).toLocaleString()}` : "Pendiente"}</div>
                             <div><strong>Pago:</strong> {selectedHistoryItem.payment_status || "Pendiente"}</div>
+                            <div><strong>Dirección:</strong> {getClientAddress(selectedHistoryItem)}</div>
+                            <div><strong>Solicitado:</strong> {getTimelineValue(selectedHistoryItem, "request_date")}</div>
+                            <div><strong>Aceptado:</strong> {getTimelineValue(selectedHistoryItem, "accepted_at")}</div>
+                            <div><strong>Iniciado:</strong> {getTimelineValue(selectedHistoryItem, "started_at")}</div>
+                            <div><strong>Terminado:</strong> {getTimelineValue(selectedHistoryItem, "finished_at")}</div>
                           </div>
                         </div>
                       </div>

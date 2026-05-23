@@ -7,7 +7,6 @@ import WorkersList from "../pages/public/WorkersList";
 import WorkerDetail from "../pages/public/WorkerDetail";
 import Dashboard from "../pages/admin/Dashboard";
 import Users from "../pages/admin/Users";
-import AdminLogs from "../pages/admin/AdminLogs";
 import AccessDenied from "../pages/system/AccessDenied";
 import NotFound from "../pages/system/NotFound";
 import AdminRoute from "./AdminRoute";
@@ -35,7 +34,7 @@ export default function AppRouter() {
       <Route path="/dashboard" element={<AdminRoute><AdminLayout><Dashboard/></AdminLayout></AdminRoute>} />
       <Route path="/dashboard/usuarios" element={<AdminRoute><AdminLayout><Users/></AdminLayout></AdminRoute>} />
       <Route path="/dashboard/trabajadores" element={<AdminRoute><AdminLayout><Workers/></AdminLayout></AdminRoute>} />
-      <Route path="/dashboard/logs" element={<AdminRoute><AdminLayout><AdminLogs/></AdminLayout></AdminRoute>} />
+      <Route path="/dashboard/logs" element={<Navigate to="/dashboard" replace />} />
 
       <Route path="/dashboard/servicios" element={<Navigate to="/worker-panel" replace />} />
       <Route path="/dashboard/tipos-servicios" element={<Navigate to="/worker-panel" replace />} />
