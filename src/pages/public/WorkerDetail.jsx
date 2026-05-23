@@ -8,14 +8,33 @@ export default function WorkerDetail() {
   const navigate = useNavigate();
   const [worker, setWorker] = useState(null);
   const [types, setTypes] = useState([]);
-  const [serviceTypeId, setServiceTypeId] = useState("");
+  const [serviceTypeName, setServiceTypeName] = useState("");
   const [notes, setNotes] = useState("");
+  const [estimatedPrice, setEstimatedPrice] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const token = localStorage.getItem("token");
   const [userRole, setUserRole] = useState("");
   const [userWorkerId, setUserWorkerId] = useState("");
+
+  const getStoredProfile = () => {
+    try {
+      return JSON.parse(localStorage.getItem("user_profile_me") || "{}");
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const getDefaultAddressId = () => {
+    const storedProfile = getStoredProfile();
+    const localDefault = localStorage.getItem("user_default_address_id");
+    return storedProfile?.address_id || storedProfile?.address?.address_id || localDefault || "";
+  };
+
+  const normalizeText = (value) => String(value ?? "").trim().toLowerCase();
+
+  const selectedServiceType = types.find((type) => normalizeText(type.service_name) === normalizeText(serviceTypeName)) || null;
 
   useEffect(() => {
     let mounted = true;
@@ -62,8 +81,14 @@ export default function WorkerDetail() {
       return;
     }
     
-    if (!serviceTypeId) {
-      setError("Selecciona un tipo de servicio.");
+    const matchedType = selectedServiceType;
+    if (!serviceTypeName.trim()) {
+      setError("Escribe el tipo de servicio.");
+      return;
+    }
+
+    if (!matchedType) {
+      setError("El tipo de servicio no coincide con uno disponible. Escribe uno válido como Electricista o Pintor.");
       return;
     }
 
@@ -71,51 +96,23 @@ export default function WorkerDetail() {
       setSubmitting(true);
       setError("");
 
-      let clientPayload = {};
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1] || ""));
-        let localProfile = {};
-        try {
-          localProfile = JSON.parse(localStorage.getItem("user_profile_me") || "{}");
-        } catch (_) {
-          localProfile = {};
-        }
-        clientPayload = {
-          client_id: payload?.user_id || payload?.id || null,
-          client_name: localProfile?.name || payload?.name || payload?.fullname || payload?.username || null,
-          client_lastname: localProfile?.lastname || payload?.lastname || null,
-          client_phone: localProfile?.phone_number || payload?.phone_number || payload?.phone || null,
-          client_email: localProfile?.email || payload?.email || null,
-          client_address: localProfile?.address || null,
-          client_city: localProfile?.city || null,
-          client_state: localProfile?.state || null,
-          // Compatibilidad con diferentes esquemas de backend
-          address_phone_number: localProfile?.phone_number || payload?.phone_number || payload?.phone || null,
-          address: localProfile?.address || null,
-          full_address: [localProfile?.address, localProfile?.city, localProfile?.state].filter(Boolean).join(", ") || null,
-        };
-      } catch (_) {
-        clientPayload = {};
-      }
-
-      const contactLine = [clientPayload?.client_phone, clientPayload?.client_email].filter(Boolean).join(" | ");
-      const addressLine = [clientPayload?.client_address, clientPayload?.client_city, clientPayload?.client_state]
-        .filter(Boolean)
-        .join(", ");
-      const descriptionWithContact = [
-        `Solicitud para ${worker?.name ?? ""} ${worker?.lastname ?? ""}. ${notes}`.trim(),
-        contactLine ? `Contacto cliente: ${contactLine}` : "",
-        addressLine ? `Domicilio cliente: ${addressLine}` : "",
-      ]
-        .filter(Boolean)
-        .join(". ");
-      
-      await api.post("/services/request", {
-        service_type_id: Number(serviceTypeId),
-        worker_id: Number(id),
-        description: descriptionWithContact,
-        ...clientPayload,
-      });
+      const localProfile = getStoredProfile();
+      const addressId = getDefaultAddressId();
+      const description = `Solicitud para ${worker?.name ?? ""} ${worker?.lastname ?? ""}. ${notes}`.trim();
+      const parsedServiceTypeId = Number(matchedType.service_type_id);
+    const parsedEstimatedPrice = estimatedPrice !== "" ? Number(estimatedPrice) : Number(estimado);
+    if (Number.isNaN(parsedEstimatedPrice) || parsedEstimatedPrice < 0) {
+      setError("El precio estimado debe ser un número positivo.");
+      return;
+    }
+    
+    await api.post("/services/request", {
+        service_type_id: parsedServiceTypeId,
+      worker_id: Number(id),
+      description,
+      ...(addressId ? { address_id: Number(addressId) } : {}),
+      estimated_price: parsedEstimatedPrice,
+    });
       
       navigate("/mi-cuenta", { replace: true });
     } catch (err) {
@@ -133,8 +130,8 @@ export default function WorkerDetail() {
     return <div className="alert alert-danger">{error}</div>;
   }
 
-  const estimado = worker && serviceTypeId 
-    ? types.find(t => t.service_type_id === Number(serviceTypeId))?.hourly_rate ?? worker.hourly_rate ?? 350
+  const estimado = worker && serviceTypeName.trim()
+    ? selectedServiceType?.hourly_rate ?? worker.hourly_rate ?? 350
     : worker?.hourly_rate ?? 350;
 
   return (
@@ -210,6 +207,7 @@ export default function WorkerDetail() {
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -236,22 +234,25 @@ export default function WorkerDetail() {
               <form onSubmit={contratar} className="d-grid gap-3">
                 <div>
                   <label className="form-label fw-semibold">Tipo de servicio *</label>
-                  <select 
-                    className="form-select form-select-lg" 
-                    value={serviceTypeId} 
-                    onChange={e => {
-                      setServiceTypeId(e.target.value);
+                  <input
+                    className="form-control form-control-lg"
+                    list="serviceTypeOptions"
+                    value={serviceTypeName}
+                    onChange={(e) => {
+                      setServiceTypeName(e.target.value);
                       setError("");
                     }}
+                    placeholder="Escribe el tipo de servicio, por ejemplo: Electricista, Pintor"
                     disabled={!token || userRole === "worker"}
-                  >
-                    <option value="">Selecciona tipo de servicio</option>
-                    {types.map(t=>(
-                      <option key={t.service_type_id} value={t.service_type_id}>
-                        {t.service_name}
+                  />
+                  <datalist id="serviceTypeOptions">
+                    {types.map((type) => (
+                      <option key={type.service_type_id} value={type.service_name}>
+                        {type.description || ""}
                       </option>
                     ))}
-                  </select>
+                  </datalist>
+                  <div className="form-text">Escribe el oficio tal como lo ves en la lista: Electricista, Pintor, Plomero, etc.</div>
                 </div>
 
                 <div>
@@ -266,14 +267,18 @@ export default function WorkerDetail() {
                   />
                 </div>
 
-                <div className="p-3 bg-light rounded">
-                  <div className="d-flex justify-content-between align-items-center">
-                    <span>Cotizacion estimada:</span>
-                    <strong className="text-primary" style={{fontSize: "1.25rem"}}>
-                      ${estimado}
-                    </strong>
-                  </div>
-                  <small className="text-muted">El precio final depende del tipo de servicio y la solicitud del cliente</small>
+                <div>
+                  <label className="form-label fw-semibold">Precio estimado</label>
+                  <input
+                    className="form-control"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Dejar vacío para usar la cotización estimada"
+                    value={estimatedPrice}
+                    onChange={e => setEstimatedPrice(e.target.value)}
+                    disabled={!token || userRole === "worker"}
+                  />
                 </div>
 
                 <button 

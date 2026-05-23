@@ -4,7 +4,6 @@ const adminLinks = [
 	{ to: "/dashboard", label: "Monitoreo General" },
 	{ to: "/dashboard/usuarios", label: "CRUD Usuarios" },
 	{ to: "/dashboard/trabajadores", label: "CRUD Trabajadores" },
-	{ to: "/dashboard/logs", label: "Notificaciones" },
 ];
 
 export default function AdminSidebar(){
