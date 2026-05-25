@@ -1,11 +1,6 @@
 import { useEffect } from "react";
 
-const buildWebSocketUrl = () => {
-  const apiUrl = import.meta.env.VITE_API_URL;
-  const baseUrl = apiUrl ? new URL(apiUrl, window.location.origin) : new URL(window.location.origin);
-  const wsProtocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${wsProtocol}//${baseUrl.host}/`;
-};
+const buildWebSocketUrl = () => import.meta.env.VITE_WS_URL;
 
 const broadcastDataUpdated = (type, id) => {
   try {
