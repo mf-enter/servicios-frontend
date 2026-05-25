@@ -2,6 +2,16 @@ const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 const trimTrailingSlash = (value) => String(value || "").replace(/\/$/, "");
 
+const normalizeSocketPath = (value) => {
+  const path = String(value || "/ws").trim();
+
+  if (!path) {
+    return "/ws";
+  }
+
+  return `/${path.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+};
+
 export const resolveApiBaseUrl = ({ apiUrl, currentOrigin, currentHostname } = {}) => {
   const origin = currentOrigin || "http://localhost";
   const hostname = String(currentHostname || "").toLowerCase();
@@ -42,10 +52,40 @@ export const getApiBaseUrl = () => {
 };
 
 export const getWebSocketUrl = () => {
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  const currentHostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  const originIsLocal = LOCAL_HOSTNAMES.has(String(currentHostname).toLowerCase());
+  const socketPath = normalizeSocketPath(import.meta.env.VITE_WS_PATH || "/ws");
+  const configuredSocketUrl = String(import.meta.env.VITE_WS_URL || "").trim();
+
+  if (configuredSocketUrl) {
+    try {
+      const resolved = new URL(configuredSocketUrl, currentOrigin);
+      const resolvedIsLocal = LOCAL_HOSTNAMES.has(resolved.hostname.toLowerCase());
+
+      if (resolvedIsLocal && !originIsLocal) {
+        const fallbackUrl = new URL(socketPath, currentOrigin);
+        const fallbackProtocol = fallbackUrl.protocol === "https:" ? "wss:" : "ws:";
+
+        return `${fallbackProtocol}//${fallbackUrl.host}${fallbackUrl.pathname}`;
+      }
+
+      const resolvedProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
+
+      return `${resolvedProtocol}//${resolved.host}${normalizeSocketPath(resolved.pathname)}`;
+    } catch (_) {
+      if (!originIsLocal && configuredSocketUrl.includes("localhost")) {
+        const fallbackUrl = new URL(socketPath, currentOrigin);
+        const fallbackProtocol = fallbackUrl.protocol === "https:" ? "wss:" : "ws:";
+
+        return `${fallbackProtocol}//${fallbackUrl.host}${fallbackUrl.pathname}`;
+      }
+    }
+  }
+
   const apiBaseUrl = getApiBaseUrl();
-  const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  const baseUrl = new URL(apiBaseUrl, fallbackOrigin);
+  const baseUrl = new URL(apiBaseUrl, currentOrigin);
   const wsProtocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
 
-  return `${wsProtocol}//${baseUrl.host}/`;
+  return `${wsProtocol}//${baseUrl.host}${socketPath}`;
 };
