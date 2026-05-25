@@ -8,7 +8,7 @@ export default function WorkerDetail() {
   const navigate = useNavigate();
   const [worker, setWorker] = useState(null);
   const [types, setTypes] = useState([]);
-  const [serviceTypeName, setServiceTypeName] = useState("");
+  const [serviceTypeId, setServiceTypeId] = useState("");
   const [notes, setNotes] = useState("");
   const [estimatedPrice, setEstimatedPrice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -32,9 +32,31 @@ export default function WorkerDetail() {
     return storedProfile?.address_id || storedProfile?.address?.address_id || localDefault || "";
   };
 
-  const normalizeText = (value) => String(value ?? "").trim().toLowerCase();
+  const selectedServiceType = types.find((type) => String(type.service_type_id) === String(serviceTypeId)) || null;
 
-  const selectedServiceType = types.find((type) => normalizeText(type.service_name) === normalizeText(serviceTypeName)) || null;
+  const reloadServiceTypes = async () => {
+    try {
+      const response = await api.get("/service-types");
+      const list = listFromResponse(response);
+      setTypes(list);
+
+      const workerSpecialty = String(worker?.specialty ?? "").trim().toLowerCase();
+      if (workerSpecialty) {
+        const matched = list.find((type) => String(type.service_name ?? "").trim().toLowerCase() === workerSpecialty);
+        if (matched) {
+          setServiceTypeId(String(matched.service_type_id));
+        }
+      }
+
+      if (!list.length) {
+        setError("El catálogo de tipos de servicio está vacío. Recarga el catálogo antes de validar.");
+      } else {
+        setError("");
+      }
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -66,12 +88,38 @@ export default function WorkerDetail() {
         })
         .catch((err) => { if (mounted) setError(apiErrorMessage(err)); }),
       api.get("/service-types")
-        .then(r => { if (mounted) setTypes(listFromResponse(r)); })
+        .then(r => {
+          if (!mounted) return;
+          const list = listFromResponse(r);
+          setTypes(list);
+
+          const workerSpecialty = String(fetched?.specialty ?? "").trim().toLowerCase();
+          if (workerSpecialty) {
+            const matched = list.find((type) => String(type.service_name ?? "").trim().toLowerCase() === workerSpecialty);
+            if (matched) {
+              setServiceTypeId(String(matched.service_type_id));
+            }
+          }
+
+          if (!list.length) {
+            setError("El catálogo de tipos de servicio está vacío. Recarga el catálogo antes de validar.");
+          }
+        })
         .catch(()=>{})
     ]).finally(() => { if (mounted) setLoading(false); });
 
     return () => { mounted = false; };
   }, [id]);
+
+  useEffect(() => {
+    if (!worker?.specialty || types.length === 0 || serviceTypeId) return;
+
+    const workerSpecialty = String(worker.specialty).trim().toLowerCase();
+    const matched = types.find((type) => String(type.service_name ?? "").trim().toLowerCase() === workerSpecialty);
+    if (matched) {
+      setServiceTypeId(String(matched.service_type_id));
+    }
+  }, [worker, types, serviceTypeId]);
 
   const contratar = async (e) => {
     e.preventDefault();
@@ -81,14 +129,19 @@ export default function WorkerDetail() {
       return;
     }
     
+    if (!types.length) {
+      setError("El catálogo de tipos de servicio no está cargado. Recarga el catálogo antes de validar.");
+      return;
+    }
+
     const matchedType = selectedServiceType;
-    if (!serviceTypeName.trim()) {
-      setError("Escribe el tipo de servicio.");
+    if (!serviceTypeId) {
+      setError("Selecciona un tipo de servicio válido del catálogo.");
       return;
     }
 
     if (!matchedType) {
-      setError("El tipo de servicio no coincide con uno disponible. Escribe uno válido como Electricista o Pintor.");
+      setError("El tipo de servicio seleccionado ya no existe en el catálogo. Recarga el catálogo y elige otra opción válida.");
       return;
     }
 
@@ -100,19 +153,19 @@ export default function WorkerDetail() {
       const addressId = getDefaultAddressId();
       const description = `Solicitud para ${worker?.name ?? ""} ${worker?.lastname ?? ""}. ${notes}`.trim();
       const parsedServiceTypeId = Number(matchedType.service_type_id);
-    const parsedEstimatedPrice = estimatedPrice !== "" ? Number(estimatedPrice) : Number(estimado);
-    if (Number.isNaN(parsedEstimatedPrice) || parsedEstimatedPrice < 0) {
-      setError("El precio estimado debe ser un número positivo.");
-      return;
-    }
-    
-    await api.post("/services/request", {
+      const parsedEstimatedPrice = estimatedPrice !== "" ? Number(estimatedPrice) : Number(estimado);
+      if (Number.isNaN(parsedEstimatedPrice) || parsedEstimatedPrice < 0) {
+        setError("El precio estimado debe ser un número positivo.");
+        return;
+      }
+
+      await api.post("/services/request", {
         service_type_id: parsedServiceTypeId,
-      worker_id: Number(id),
-      description,
-      ...(addressId ? { address_id: Number(addressId) } : {}),
-      estimated_price: parsedEstimatedPrice,
-    });
+        worker_id: Number(id),
+        description,
+        ...(addressId ? { address_id: Number(addressId) } : {}),
+        estimated_price: parsedEstimatedPrice,
+      });
       
       navigate("/mi-cuenta", { replace: true });
     } catch (err) {
@@ -130,9 +183,7 @@ export default function WorkerDetail() {
     return <div className="alert alert-danger">{error}</div>;
   }
 
-  const estimado = worker && serviceTypeName.trim()
-    ? selectedServiceType?.hourly_rate ?? worker.hourly_rate ?? 350
-    : worker?.hourly_rate ?? 350;
+  const estimado = selectedServiceType?.hourly_rate ?? worker?.hourly_rate ?? 350;
 
   return (
     <div>
@@ -231,28 +282,37 @@ export default function WorkerDetail() {
                 </div>
               )}
 
+              {!types.length && (
+                <div className="alert alert-warning d-flex justify-content-between align-items-center gap-3 mb-3">
+                  <span>El catálogo de tipos de servicio no está cargado. Recárgalo antes de validar.</span>
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={reloadServiceTypes} disabled={submitting}>
+                    Recargar catálogo
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={contratar} className="d-grid gap-3">
                 <div>
                   <label className="form-label fw-semibold">Tipo de servicio *</label>
-                  <input
-                    className="form-control form-control-lg"
-                    list="serviceTypeOptions"
-                    value={serviceTypeName}
+                  <select
+                    className="form-select form-select-lg"
+                    value={serviceTypeId}
                     onChange={(e) => {
-                      setServiceTypeName(e.target.value);
+                      setServiceTypeId(e.target.value);
                       setError("");
                     }}
-                    placeholder="Escribe el tipo de servicio, por ejemplo: Electricista, Pintor"
-                    disabled={!token || userRole === "worker"}
-                  />
-                  <datalist id="serviceTypeOptions">
+                    disabled={!token || userRole === "worker" || !types.length}
+                  >
+                    <option value="">Selecciona un oficio del catálogo</option>
                     {types.map((type) => (
-                      <option key={type.service_type_id} value={type.service_name}>
-                        {type.description || ""}
+                      <option key={type.service_type_id} value={type.service_type_id}>
+                        {type.service_name}
                       </option>
                     ))}
-                  </datalist>
-                  <div className="form-text">Escribe el oficio tal como lo ves en la lista: Electricista, Pintor, Plomero, etc.</div>
+                  </select>
+                  <div className="form-text">
+                    La lista viene de /api/service-types. Si agregas un oficio en el backend, recarga el catálogo para verlo aquí.
+                  </div>
                 </div>
 
                 <div>

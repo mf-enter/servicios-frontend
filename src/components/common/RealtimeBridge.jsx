@@ -1,6 +1,7 @@
 import { useEffect } from "react";
+import { getWebSocketUrl } from "../../api/config";
 
-const buildWebSocketUrl = () => import.meta.env.VITE_WS_URL;
+const buildWebSocketUrl = () => getWebSocketUrl();
 
 const broadcastDataUpdated = (type, id) => {
   try {
