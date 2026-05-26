@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "../pages/public/Home";
 import Login from "../pages/public/Login";
 import Register from "../pages/public/Register";
+import Services from "../pages/public/Services";
 import WorkersList from "../pages/public/WorkersList";
 import WorkerDetail from "../pages/public/WorkerDetail";
 import Dashboard from "../pages/admin/Dashboard";
@@ -24,6 +25,8 @@ export default function AppRouter() {
       <Route path="/" element={<Home />} />
       <Route path="/trabajadores" element={<PublicLayout><WorkersList/></PublicLayout>} />
       <Route path="/trabajadores/:id" element={<PublicLayout><WorkerDetail/></PublicLayout>} />
+      <Route path="/services" element={<PublicLayout><Services/></PublicLayout>} />
+      <Route path="/servicios" element={<Navigate to="/services" replace />} />
       <Route path="/login" element={<PublicLayout><Login/></PublicLayout>} />
       <Route path="/worker-login" element={<Navigate to="/login" replace />} />
       <Route path="/register" element={<PublicLayout><Register/></PublicLayout>} />

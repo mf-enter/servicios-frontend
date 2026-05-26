@@ -985,7 +985,7 @@ export default function Account() {
             {activeTab !== "perfil" && !loading && listToRender.length === 0 ? (
               <div className="alert alert-warning">
                 <p className="mb-0">No hay servicios en esta sección.</p>
-                <small><a href="/trabajadores" className="alert-link">Explora trabajadores →</a></small>
+                <small><Link to="/trabajadores" className="alert-link">Explora trabajadores →</Link></small>
               </div>
             ) : null}
 
