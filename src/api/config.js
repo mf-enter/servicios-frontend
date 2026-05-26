@@ -73,6 +73,8 @@ export const getWebSocketUrl = () => {
   const pageProtocol = typeof window !== "undefined" ? window.location.protocol : "http:";
   const secureSocketProtocol = toSecureSocketProtocol(pageProtocol);
   const configuredSocketUrl = String(import.meta.env.VITE_WS_URL || "").trim();
+  const apiBaseUrl = getApiBaseUrl();
+  const apiHost = new URL(apiBaseUrl, currentOrigin).host;
 
   if (configuredSocketUrl) {
     try {
@@ -80,8 +82,15 @@ export const getWebSocketUrl = () => {
       const resolvedIsLocal = LOCAL_HOSTNAMES.has(resolved.hostname.toLowerCase());
       const resolvedProtocol = secureSocketProtocol === "wss:" ? "wss:" : toSecureSocketProtocol(resolved.protocol);
 
+      if (!originIsLocal && resolved.host !== apiHost) {
+        const fallbackUrl = new URL(socketPath, apiBaseUrl);
+        const fallbackProtocol = toSecureSocketProtocol(fallbackUrl.protocol);
+
+        return `${fallbackProtocol}//${fallbackUrl.host}${fallbackUrl.pathname}`;
+      }
+
       if (resolvedIsLocal && !originIsLocal) {
-        const fallbackUrl = new URL(socketPath, currentOrigin);
+        const fallbackUrl = new URL(socketPath, apiBaseUrl);
         const fallbackProtocol = toSecureSocketProtocol(fallbackUrl.protocol);
 
         return `${fallbackProtocol}//${fallbackUrl.host}${fallbackUrl.pathname}`;
@@ -90,7 +99,7 @@ export const getWebSocketUrl = () => {
       return `${resolvedProtocol}//${resolved.host}${normalizeSocketPath(resolved.pathname)}`;
     } catch (_) {
       if (!originIsLocal && configuredSocketUrl.includes("localhost")) {
-        const fallbackUrl = new URL(socketPath, currentOrigin);
+        const fallbackUrl = new URL(socketPath, apiBaseUrl);
         const fallbackProtocol = toSecureSocketProtocol(fallbackUrl.protocol);
 
         return `${fallbackProtocol}//${fallbackUrl.host}${fallbackUrl.pathname}`;
@@ -98,7 +107,6 @@ export const getWebSocketUrl = () => {
     }
   }
 
-  const apiBaseUrl = getApiBaseUrl();
   const baseUrl = new URL(apiBaseUrl, currentOrigin);
   const wsProtocol = toSecureSocketProtocol(baseUrl.protocol);
 

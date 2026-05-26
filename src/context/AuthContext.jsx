@@ -16,6 +16,11 @@ const getRoleFromToken = (token) => {
 export const AuthProvider = ({children}) => {
   const [user,setUser]=useState(null);
 
+  const navigateTo = (path) => {
+    const target = path.startsWith("/") ? path : `/${path}`;
+    window.location.hash = `#${target}`;
+  };
+
   const login=async(email,password)=>{
     const r = await api.post("/auth/login",{email,password});
     localStorage.setItem("token",r.data.token);
@@ -24,18 +29,18 @@ export const AuthProvider = ({children}) => {
     // ✅ redirección automática por rol
     const role = r.data.user?.role || getRoleFromToken(r.data.token);
     if(role==="admin"){
-      window.location.href="/dashboard";
+      navigateTo("/dashboard");
     }else if(role==="worker"){
-      window.location.href="/worker-panel";
+      navigateTo("/worker-panel");
     }else{
-      window.location.href="/mi-cuenta";
+      navigateTo("/mi-cuenta");
     }
   };
 
   const logout=()=>{
     localStorage.removeItem("token");
     setUser(null);
-    window.location.href="/";
+    navigateTo("/");
   };
 
   return <AuthContext.Provider value={{user,login,logout}}>{children}</AuthContext.Provider>;
