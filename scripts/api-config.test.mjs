@@ -25,4 +25,12 @@ const remoteExplicit = resolveApiBaseUrl({
 
 assert.equal(remoteExplicit, "https://api.example.com/api");
 
+const remoteMissingApiPath = resolveApiBaseUrl({
+  apiUrl: "https://servicios-backend.onrender.com",
+  currentOrigin: "https://servicios-frontend.onrender.com",
+  currentHostname: "servicios-frontend.onrender.com",
+});
+
+assert.equal(remoteMissingApiPath, "https://servicios-backend.onrender.com/api");
+
 console.log("api-config smoke test passed");
